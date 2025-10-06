@@ -1,0 +1,33 @@
+{
+  "functions": {
+    "api/**/*.js": {
+      "includeFiles": "dist/**"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/analyze",
+      "destination": "/api/analyze"
+    },
+    {
+      "source": "/api/chat",
+      "destination": "/api/chat"
+    },
+    {
+      "source": "/api/create_sheet",
+      "destination": "/api/create_sheet"
+    },
+    {
+      "source": "/api/hello",
+      "destination": "/api/hello"
+    },
+    {
+      "source": "/api/detailed-analysis",
+      "destination": "/api/detailed-analysis"
+    },
+    {
+      "source": "/api/ai-analysis",
+      "destination": "/api/ai-analysis"
+    }
+  ]
+}

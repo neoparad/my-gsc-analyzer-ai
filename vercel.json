@@ -1,0 +1,88 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "functions": {
+    "api/**/*.js": {
+      "includeFiles": "dist/**"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/login",
+      "destination": "/api/login"
+    },
+    {
+      "source": "/api/analyze",
+      "destination": "/api/analyze"
+    },
+    {
+      "source": "/api/chat",
+      "destination": "/api/chat"
+    },
+    {
+      "source": "/api/create_sheet",
+      "destination": "/api/create_sheet"
+    },
+    {
+      "source": "/api/hello",
+      "destination": "/api/hello"
+    },
+    {
+      "source": "/api/detailed-analysis",
+      "destination": "/api/detailed-analysis"
+    },
+    {
+      "source": "/api/ai-analysis",
+      "destination": "/api/ai-analysis"
+    },
+    {
+      "source": "/api/rank-tracker",
+      "destination": "/api/rank-tracker"
+    },
+    {
+      "source": "/api/rank-tracker-stats",
+      "destination": "/api/rank-tracker-stats"
+    },
+    {
+      "source": "/api/rank-tracker-ai",
+      "destination": "/api/rank-tracker-ai"
+    },
+    {
+      "source": "/api/directory-analysis",
+      "destination": "/api/directory-analysis"
+    },
+    {
+      "source": "/api/query-rank-share",
+      "destination": "/api/query-rank-share"
+    },
+    {
+      "source": "/api/analyze-competitive",
+      "destination": "/api/analyze-competitive"
+    },
+    {
+      "source": "/api/generate-improvement-plan",
+      "destination": "/api/generate-improvement-plan"
+    },
+    {
+      "source": "/api/deep-analysis",
+      "destination": "/api/deep-analysis"
+    },
+    {
+      "source": "/api/comprehensive-analysis",
+      "destination": "/api/comprehensive-analysis"
+    },
+    {
+      "source": "/api/detailed-improvement",
+      "destination": "/api/detailed-improvement"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/health"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -1,0 +1,654 @@
+import React, { useState, useEffect } from 'react'
+import { Plus, Trash2, RefreshCw, TrendingUp, TrendingDown, Activity, BarChart3, BarChart2, Brain } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
+import RankTrackerStatisticalResult from './RankTrackerStatisticalResult'
+import RankTrackerAIResult from './RankTrackerAIResult'
+
+function RankTracker() {
+  const [siteUrl, setSiteUrl] = useState('https://www.tabirai.net/')
+  const [queries, setQueries] = useState([])
+  const [newQuery, setNewQuery] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [period, setPeriod] = useState(30)
+  const [error, setError] = useState('')
+  const [statisticalAnalysis, setStatisticalAnalysis] = useState(null)
+  const [aiAnalysis, setAiAnalysis] = useState(null)
+  const [analyzingStats, setAnalyzingStats] = useState(false)
+  const [analyzingAI, setAnalyzingAI] = useState(false)
+
+  useEffect(() => {
+    const saved = localStorage.getItem('rankTrackerQueries')
+    if (saved) {
+      try {
+        setQueries(JSON.parse(saved))
+      } catch (e) {
+        console.error('Failed to load queries:', e)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (queries.length > 0) {
+      localStorage.setItem('rankTrackerQueries', JSON.stringify(queries))
+    }
+  }, [queries])
+
+  const addQuery = () => {
+    if (!newQuery.trim()) return
+    if (queries.length >= 1000) {
+      setError('クエリは1000件まで登録できます')
+      return
+    }
+
+    // 全角スペースを半角スペースに変換
+    const normalizedQuery = newQuery.trim().replace(/　/g, ' ')
+
+    const query = {
+      id: Date.now(),
+      query: normalizedQuery,
+      siteUrl,
+      topPageUrl: '',
+      pageTitle: '',
+      currentPosition: null,
+      history: {}
+    }
+
+    setQueries([...queries, query])
+    setNewQuery('')
+    setError('')
+  }
+
+  const deleteQuery = (id) => {
+    setQueries(queries.filter(q => q.id !== id))
+  }
+
+  const fetchLatestRanks = async () => {
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/rank-tracker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteUrl,
+          queries: queries.map(q => q.query),
+          period
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'データ取得に失敗しました')
+      }
+
+      const updatedQueries = queries.map(q => {
+        const rankData = data.results.find(r => r.query === q.query)
+        if (rankData) {
+          return {
+            ...q,
+            topPageUrl: rankData.topPageUrl,
+            pageTitle: rankData.pageTitle,
+            currentPosition: rankData.currentPosition,
+            history: { ...q.history, ...rankData.history }
+          }
+        }
+        return q
+      })
+
+      setQueries(updatedQueries)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getDates = () => {
+    const dates = []
+    for (let i = 0; i < period; i++) {
+      const date = new Date()
+      date.setDate(date.getDate() - i - 3)
+      dates.push(date.toISOString().split('T')[0])
+    }
+    return dates
+  }
+
+  const getAveragePosition = (query) => {
+    const positions = Object.values(query.history).filter(p => p !== null && p !== undefined)
+    if (positions.length === 0) return null
+    return positions.reduce((sum, pos) => sum + pos, 0) / positions.length
+  }
+
+  const getMedianPosition = (query) => {
+    const positions = Object.values(query.history).filter(p => p !== null && p !== undefined).sort((a, b) => a - b)
+    if (positions.length === 0) return null
+    const mid = Math.floor(positions.length / 2)
+    return positions.length % 2 === 0 ? (positions[mid - 1] + positions[mid]) / 2 : positions[mid]
+  }
+
+  const getStandardDeviation = (query) => {
+    const positions = Object.values(query.history).filter(p => p !== null && p !== undefined)
+    if (positions.length < 2) return null
+    const avg = positions.reduce((sum, pos) => sum + pos, 0) / positions.length
+    const variance = positions.reduce((sum, pos) => sum + Math.pow(pos - avg, 2), 0) / positions.length
+    return Math.sqrt(variance)
+  }
+
+  const getStabilityScore = (query) => {
+    const stdDev = getStandardDeviation(query)
+    if (stdDev === null || stdDev === 0) return null
+    // 標準偏差が小さいほど安定 → スコアは高い（100 - 正規化した標準偏差）
+    // 標準偏差を0-100に正規化（最大100として）
+    const normalizedStdDev = Math.min(stdDev, 100)
+    return 100 - normalizedStdDev
+  }
+
+  const getPreviousDayPosition = (query) => {
+    const date = new Date()
+    date.setDate(date.getDate() - 4) // 前日（現在は-3なので-4）
+    const prevDate = date.toISOString().split('T')[0]
+    return query.history[prevDate] || null
+  }
+
+  const getDayOverDayChange = (query) => {
+    const current = query.currentPosition
+    const previous = getPreviousDayPosition(query)
+    if (!current || !previous) return null
+    return previous - current // 順位が下がる（数値増加）= マイナス, 順位が上がる（数値減少）= プラス
+  }
+
+  const getCurrentDate = () => {
+    // 実際に取得できた最新日を使用
+    if (queries.length > 0 && queries[0].latestDate) {
+      return queries[0].latestDate
+    }
+    // フォールバック: 3日前
+    const date = new Date()
+    date.setDate(date.getDate() - 3)
+    return date.toISOString().split('T')[0]
+  }
+
+  const dates = getDates()
+  const currentDate = getCurrentDate()
+
+  // サマリ統計の計算
+  const getOverallStats = () => {
+    if (queries.length === 0) return null
+
+    const allPositions = queries.map(q => ({
+      avg: getAveragePosition(q),
+      current: q.currentPosition,
+      change: getDayOverDayChange(q),
+      stability: getStabilityScore(q)
+    })).filter(p => p.avg !== null && p.current !== null)
+
+    if (allPositions.length === 0) return null
+
+    const avgChange = allPositions
+      .filter(p => p.change !== null)
+      .reduce((sum, p) => sum + p.change, 0) / allPositions.filter(p => p.change !== null).length
+
+    const avgStability = allPositions
+      .filter(p => p.stability !== null)
+      .reduce((sum, p) => sum + p.stability, 0) / allPositions.filter(p => p.stability !== null).length
+
+    return {
+      avgChange,
+      avgStability,
+      totalQueries: queries.length
+    }
+  }
+
+  // 順位シェア分析データ
+  const getRankShareData = () => {
+    if (queries.length === 0) return []
+
+    const ranges = {
+      '1～3位': 0,
+      '3～6位': 0,
+      '6～10位': 0,
+      '10～20位': 0,
+      '20位以上': 0,
+      '圏外': 0
+    }
+
+    queries.forEach(q => {
+      const pos = q.currentPosition
+      if (!pos) {
+        ranges['圏外']++
+      } else if (pos < 3) {
+        ranges['1～3位']++
+      } else if (pos < 6) {
+        ranges['3～6位']++
+      } else if (pos < 10) {
+        ranges['6～10位']++
+      } else if (pos < 20) {
+        ranges['10～20位']++
+      } else {
+        ranges['20位以上']++
+      }
+    })
+
+    return Object.entries(ranges).map(([name, value]) => ({
+      name,
+      value,
+      percentage: queries.length > 0 ? (value / queries.length * 100).toFixed(1) : 0
+    }))
+  }
+
+  const overallStats = getOverallStats()
+  const rankShareData = getRankShareData()
+  const rankColors = {
+    '1～3位': '#10b981',
+    '3～6位': '#3b82f6',
+    '6～10位': '#f59e0b',
+    '10～20位': '#ef4444',
+    '20位以上': '#9ca3af',
+    '圏外': '#6b7280'
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="bg-white border-b p-4">
+        <h1 className="text-2xl font-bold text-gray-800 mb-4">GSCランクトラッカー</h1>
+
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-sm font-medium text-gray-700 mb-1">サイトURL</label>
+            <input
+              type="text"
+              value={siteUrl}
+              onChange={(e) => setSiteUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex-1 min-w-[300px]">
+            <label className="block text-sm font-medium text-gray-700 mb-1">クエリを追加</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newQuery}
+                onChange={(e) => setNewQuery(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addQuery()}
+                placeholder="検索クエリを入力..."
+                className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={addQuery}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                追加
+              </button>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={fetchLatestRanks}
+              disabled={loading || queries.length === 0}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              最新順位を取得
+            </button>
+
+            <div className="flex border border-gray-300 rounded overflow-hidden">
+              {[30, 60, 90].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={`px-3 py-2 text-sm ${
+                    period === p
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {p}日
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-2 text-sm text-gray-600">
+          登録クエリ数: {queries.length} / 1000
+        </div>
+      </div>
+
+      {/* サマリパネル */}
+      {overallStats && (
+        <div className="bg-white border-b p-4">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">サマリ</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {/* 平均変化量 */}
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
+              <div className="flex items-center gap-2 mb-2">
+                {overallStats.avgChange > 0 ? (
+                  <TrendingUp className="w-5 h-5 text-green-600" />
+                ) : (
+                  <TrendingDown className="w-5 h-5 text-red-600" />
+                )}
+                <h3 className="text-sm font-medium text-gray-700">全体平均変化量</h3>
+              </div>
+              <p className={`text-3xl font-bold ${overallStats.avgChange > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {overallStats.avgChange > 0 ? '+' : ''}{overallStats.avgChange.toFixed(2)}
+              </p>
+              <p className="text-xs text-gray-600 mt-1">前日比の平均</p>
+            </div>
+
+            {/* 安定性スコア */}
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border border-purple-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity className="w-5 h-5 text-purple-600" />
+                <h3 className="text-sm font-medium text-gray-700">平均安定性スコア</h3>
+              </div>
+              <p className={`text-3xl font-bold ${
+                overallStats.avgStability >= 70 ? 'text-green-600' :
+                overallStats.avgStability >= 40 ? 'text-yellow-600' : 'text-red-600'
+              }`}>
+                {overallStats.avgStability.toFixed(1)}
+              </p>
+              <p className="text-xs text-gray-600 mt-1">全クエリの標準偏差ベース</p>
+            </div>
+
+            {/* 総クエリ数 */}
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-lg border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <BarChart3 className="w-5 h-5 text-gray-600" />
+                <h3 className="text-sm font-medium text-gray-700">追跡中クエリ</h3>
+              </div>
+              <p className="text-3xl font-bold text-gray-800">
+                {overallStats.totalQueries}
+              </p>
+              <p className="text-xs text-gray-600 mt-1">データ取得済み</p>
+            </div>
+          </div>
+
+          {/* クエリ順位シェアグラフ */}
+          {rankShareData.length > 0 && (
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h3 className="text-md font-bold text-gray-800 mb-3">クエリ順位シェア分析</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={rankShareData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip
+                    formatter={(value, name, props) => [
+                      `${value}件 (${props.payload.percentage}%)`,
+                      'クエリ数'
+                    ]}
+                  />
+                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                    {rankShareData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={rankColors[entry.name]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse bg-white">
+          <thead className="sticky top-0 bg-gray-100 z-10">
+            <tr>
+              <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 sticky left-0 bg-gray-100 z-20">操作</th>
+              <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 sticky left-[60px] bg-gray-100 z-20 min-w-[200px]">クエリ</th>
+              <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 min-w-[300px]">トップページURL</th>
+              <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 min-w-[200px]">ページタイトル</th>
+              <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[90px]">安定性<br/>スコア</th>
+              <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[80px]">平均順位</th>
+              <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[80px]">中央値</th>
+              <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[80px]">最新<br/>{currentDate.slice(5)}</th>
+              {dates.map(date => (
+                <th key={date} className="border px-2 py-2 text-center text-xs font-medium text-gray-700 min-w-[60px]">
+                  {date.slice(5)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {queries.length === 0 ? (
+              <tr>
+                <td colSpan={8 + dates.length} className="border px-4 py-8 text-center text-gray-500">
+                  クエリを追加してください
+                </td>
+              </tr>
+            ) : (
+              queries.map(q => {
+                const stabilityScore = getStabilityScore(q)
+                const dayChange = getDayOverDayChange(q)
+
+                return (
+                  <tr key={q.id} className="hover:bg-gray-50">
+                    <td className="border px-2 py-2 sticky left-0 bg-white">
+                      <button
+                        onClick={() => deleteQuery(q.id)}
+                        className="p-1 text-red-600 hover:bg-red-100 rounded"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                    <td className="border px-4 py-2 text-sm sticky left-[60px] bg-white">{q.query}</td>
+                    <td className="border px-4 py-2 text-sm">
+                      {q.topPageUrl ? (
+                        <a href={q.topPageUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate block">
+                          {q.topPageUrl}
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="border px-4 py-2 text-sm truncate">{q.pageTitle || '-'}</td>
+                    <td className={`border px-4 py-2 text-center font-medium ${
+                      stabilityScore !== null && stabilityScore >= 70 ? 'text-green-600' :
+                      stabilityScore !== null && stabilityScore >= 40 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {stabilityScore !== null ? stabilityScore.toFixed(1) : '-'}
+                    </td>
+                    <td className="border px-4 py-2 text-center font-medium">
+                      {getAveragePosition(q) ? getAveragePosition(q).toFixed(1) : '-'}
+                    </td>
+                    <td className="border px-4 py-2 text-center font-medium">
+                      {getMedianPosition(q) !== null ? getMedianPosition(q).toFixed(1) : '-'}
+                    </td>
+                    <td className="border px-4 py-2 text-center font-medium">
+                      <div className="flex flex-col items-center">
+                        <span>{q.currentPosition ? q.currentPosition.toFixed(1) : '-'}</span>
+                        {dayChange !== null && (
+                          <span className={`text-xs ${dayChange > 0 ? 'text-green-600' : dayChange < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                            {dayChange > 0 ? `↑+${dayChange.toFixed(1)}` : dayChange < 0 ? `↓${dayChange.toFixed(1)}` : '→0'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    {dates.map(date => (
+                      <td key={date} className="border px-2 py-2 text-center text-sm">
+                        {q.history[date] ? q.history[date].toFixed(1) : '-'}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 統計分析・AI分析セクション */}
+      {queries.length > 0 && queries.some(q => Object.keys(q.history).length > 0) && (
+        <div className="bg-white rounded-lg shadow-lg p-6 mt-8 mx-4 mb-8">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6">さらに詳しく分析する</h2>
+
+          {/* 説明文 */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <p className="text-sm text-blue-800">
+              📊 <strong>統計分析:</strong> 移動平均線、ボラティリティ、相関分析、7日後予測など、数理統計に基づく詳細分析を即座に実行します。
+            </p>
+            <p className="text-sm text-blue-800 mt-2">
+              🤖 <strong>AI分析:</strong> Gemini AIが順位変動の要因を推定し、検索意図を分析、クエリをポートフォリオ分類、自然言語インサイトを生成します（1-2分）。
+            </p>
+          </div>
+
+          {/* 分析ボタン */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <button
+              onClick={async () => {
+                setAnalyzingStats(true)
+                setError('')
+                try {
+                  const response = await fetch('/api/rank-tracker-stats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ queries })
+                  })
+                  const data = await response.json()
+                  if (!response.ok) throw new Error(data.error)
+                  setStatisticalAnalysis(data)
+                } catch (err) {
+                  setError('統計分析に失敗しました: ' + err.message)
+                } finally {
+                  setAnalyzingStats(false)
+                }
+              }}
+              disabled={analyzingStats}
+              className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <BarChart2 className="w-5 h-5" />
+              <div className="text-left">
+                <div className="font-semibold">📊 詳細を統計分析</div>
+                <div className="text-xs opacity-90">即座に表示</div>
+              </div>
+            </button>
+
+            <button
+              onClick={async () => {
+                setAnalyzingAI(true)
+                setError('')
+                try {
+                  const response = await fetch('/api/rank-tracker-ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ queries, siteUrl })
+                  })
+                  const data = await response.json()
+                  if (!response.ok) throw new Error(data.error)
+                  setAiAnalysis(data)
+                } catch (err) {
+                  setError('AI分析に失敗しました: ' + err.message)
+                } finally {
+                  setAnalyzingAI(false)
+                }
+              }}
+              disabled={analyzingAI}
+              className="flex items-center justify-center gap-2 bg-purple-600 text-white px-6 py-4 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Brain className="w-5 h-5" />
+              <div className="text-left">
+                <div className="font-semibold">🤖 詳細をAI分析</div>
+                <div className="text-xs opacity-90">1-2分程度</div>
+              </div>
+            </button>
+
+            <button
+              onClick={async () => {
+                setAnalyzingStats(true)
+                setAnalyzingAI(true)
+                setError('')
+                try {
+                  const [statsRes, aiRes] = await Promise.all([
+                    fetch('/api/rank-tracker-stats', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ queries })
+                    }),
+                    fetch('/api/rank-tracker-ai', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ queries, siteUrl })
+                    })
+                  ])
+                  const statsData = await statsRes.json()
+                  const aiData = await aiRes.json()
+                  if (!statsRes.ok) throw new Error(statsData.error)
+                  if (!aiRes.ok) throw new Error(aiData.error)
+                  setStatisticalAnalysis(statsData)
+                  setAiAnalysis(aiData)
+                } catch (err) {
+                  setError('分析に失敗しました: ' + err.message)
+                } finally {
+                  setAnalyzingStats(false)
+                  setAnalyzingAI(false)
+                }
+              }}
+              disabled={analyzingStats || analyzingAI}
+              className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="text-left">
+                <div className="font-semibold">両方実行</div>
+                <div className="text-xs opacity-90">統計 + AI分析</div>
+              </div>
+            </button>
+          </div>
+
+          {/* ローディング表示 */}
+          {(analyzingStats || analyzingAI) && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <div>
+                  {analyzingStats && <p className="text-sm text-blue-800">📊 統計分析中...</p>}
+                  {analyzingAI && <p className="text-sm text-blue-800">🤖 AI分析中... (1-2分程度かかります)</p>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* エラー表示 */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-sm text-red-800">⚠️ {error}</p>
+            </div>
+          )}
+
+          {/* 統計分析結果 */}
+          {statisticalAnalysis && (
+            <div className="mb-8">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <BarChart2 className="w-6 h-6 text-blue-600" />
+                統計分析結果
+              </h3>
+              <RankTrackerStatisticalResult data={statisticalAnalysis} />
+            </div>
+          )}
+
+          {/* AI分析結果 */}
+          {aiAnalysis && (
+            <div className="mb-8">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <Brain className="w-6 h-6 text-purple-600" />
+                AI分析結果
+              </h3>
+              <RankTrackerAIResult data={aiAnalysis} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default RankTracker
