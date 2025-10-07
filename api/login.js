@@ -27,6 +27,23 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'ユーザー名とパスワードは必須です' })
     }
 
+    // Preview環境（テスト環境）では簡易認証
+    if (process.env.VERCEL_ENV === 'preview') {
+      if (username === 'test' && password === 'test123') {
+        const token = jwt.sign(
+          { username: 'test' },
+          'test-secret-preview',
+          { expiresIn: '7d' }
+        )
+        return res.status(200).json({
+          success: true,
+          token,
+          username: 'test'
+        })
+      }
+      return res.status(401).json({ error: 'テスト環境: test / test123 でログインしてください' })
+    }
+
     // 環境変数から認証情報を取得
     const validUsername = process.env.AUTH_USERNAME
     const validPasswordHash = process.env.AUTH_PASSWORD_HASH
