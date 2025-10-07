@@ -356,19 +356,20 @@ function PageSpeedAnalysisV2() {
             </div>
           </div>
 
-          {/* フェーズ2へ進むボタン - 現在利用不可 */}
-          <div className="bg-gradient-to-r from-gray-100 to-gray-200 rounded-lg p-6 text-center">
-            <h3 className="text-xl font-bold text-gray-700 mb-2">
-              🤖 AI深掘り分析（準備中）
+          {/* フェーズ2へ進むボタン */}
+          <div className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg p-6 text-center">
+            <h3 className="text-xl font-bold text-purple-800 mb-2">
+              🤖 AI深掘り分析
             </h3>
-            <p className="text-gray-600 mb-4">
-              現在、Vercel無料プランの制限により、この機能は一時的に利用できません
+            <p className="text-gray-700 mb-4">
+              Puppeteerで詳細データを取得し、AIが改善項目を自動生成します
             </p>
             <button
-              disabled
-              className="bg-gray-400 text-white py-3 px-8 rounded-lg font-semibold cursor-not-allowed opacity-50"
+              onClick={startDeepAnalysis}
+              disabled={loadingDeepAnalysis}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 px-8 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              準備中
+              {loadingDeepAnalysis ? '分析中...' : 'AI深掘り分析を開始'}
             </button>
           </div>
         </div>
