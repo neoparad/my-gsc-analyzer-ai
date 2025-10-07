@@ -14,6 +14,7 @@ import directoryAnalysisHandler from './api/directory-analysis.js'
 import queryRankShareHandler from './api/query-rank-share.js'
 import analyzeCompetitiveHandler from './api/analyze-competitive.js'
 import deepAnalysisHandler from './api/deep-analysis.js'
+import adsCannibalizationHandler from './api/ads-cannibalization.js'
 import loginHandler from './api/login.js'
 
 dotenv.config()
@@ -50,6 +51,7 @@ app.post('/api/directory-analysis', wrapHandler(directoryAnalysisHandler))
 app.post('/api/query-rank-share', wrapHandler(queryRankShareHandler))
 app.post('/api/analyze-competitive', wrapHandler(analyzeCompetitiveHandler))
 app.post('/api/deep-analysis', wrapHandler(deepAnalysisHandler))
+app.post('/api/ads-cannibalization', wrapHandler(adsCannibalizationHandler))
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -71,5 +73,6 @@ app.listen(PORT, () => {
   console.log(`   POST /api/query-rank-share`)
   console.log(`   POST /api/analyze-competitive`)
   console.log(`   POST /api/deep-analysis`)
+  console.log(`   POST /api/ads-cannibalization`)
   console.log(`   GET  /api/health\n`)
 })

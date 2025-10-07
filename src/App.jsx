@@ -8,6 +8,7 @@ import RankTracker from './RankTracker'
 import DirectoryAnalysis from './DirectoryAnalysis'
 import BrandAnalysis from './BrandAnalysis'
 import PageSpeedAnalysisV2 from './PageSpeedAnalysisV2'
+import AdsCannibalizationAnalysis from './AdsCannibalizationAnalysis'
 import Login from './Login'
 import ProtectedRoute from './ProtectedRoute'
 
@@ -30,6 +31,7 @@ function App() {
                   <Route path="/directory-analysis" element={<DirectoryAnalysis />} />
                   <Route path="/brand-analysis" element={<BrandAnalysis />} />
                   <Route path="/pagespeed-analysis" element={<PageSpeedAnalysisV2 />} />
+                  <Route path="/ads-cannibalization" element={<AdsCannibalizationAnalysis />} />
                 </Routes>
               </div>
             </div>
