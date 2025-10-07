@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { Plus, Minus, Zap, Loader2, ChevronRight, CheckCircle } from 'lucide-react'
 
 function PageSpeedAnalysisV2() {
@@ -22,6 +22,11 @@ function PageSpeedAnalysisV2() {
   const [selectedItems, setSelectedItems] = useState([])
   const [detailedPlans, setDetailedPlans] = useState({})
   const [loadingDetailedPlans, setLoadingDetailedPlans] = useState(false)
+
+  // AbortControllers for canceling requests
+  const abortControllerRef = useRef(null)
+  const deepAnalysisAbortControllerRef = useRef(null)
+  const detailedPlansAbortControllerRef = useRef(null)
 
   // フェーズ1の関数群
   const addCompetitorField = () => {
@@ -49,6 +54,9 @@ function PageSpeedAnalysisV2() {
     setLoading(true)
     setAnalysisData(null)
 
+    // Create new AbortController
+    abortControllerRef.current = new AbortController()
+
     try {
       const validCompetitors = competitorUrls.filter(url => url.trim() !== '')
 
@@ -59,7 +67,8 @@ function PageSpeedAnalysisV2() {
           myUrl,
           competitorUrls: validCompetitors,
           device
-        })
+        }),
+        signal: abortControllerRef.current.signal
       })
 
       if (!response.ok) {
@@ -73,9 +82,14 @@ function PageSpeedAnalysisV2() {
 
     } catch (error) {
       console.error('Analysis error:', error)
-      alert('競合分析中にエラーが発生しました: ' + error.message)
+      if (error.name === 'AbortError') {
+        alert('分析が停止されました')
+      } else {
+        alert('競合分析中にエラーが発生しました: ' + error.message)
+      }
     } finally {
       setLoading(false)
+      abortControllerRef.current = null
     }
   }
 
@@ -85,6 +99,9 @@ function PageSpeedAnalysisV2() {
 
     setLoadingDeepAnalysis(true)
     setPhase(2)
+
+    // Create new AbortController
+    deepAnalysisAbortControllerRef.current = new AbortController()
 
     try {
       // 自社サイトのデータを取得
@@ -96,7 +113,8 @@ function PageSpeedAnalysisV2() {
       const deepResponse = await fetch('/api/deep-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: myUrl, device })
+        body: JSON.stringify({ url: myUrl, device }),
+        signal: deepAnalysisAbortControllerRef.current.signal
       })
 
       if (!deepResponse.ok) {
@@ -114,7 +132,8 @@ function PageSpeedAnalysisV2() {
         body: JSON.stringify({
           pageSpeedData: ownSite.rawData,
           deepAnalysisData: deepData
-        })
+        }),
+        signal: deepAnalysisAbortControllerRef.current.signal
       })
 
       if (!comprehensiveResponse.ok) {
@@ -126,11 +145,16 @@ function PageSpeedAnalysisV2() {
 
     } catch (error) {
       console.error('Deep analysis error:', error)
-      alert('深掘り分析中にエラーが発生しました: ' + error.message)
+      if (error.name === 'AbortError') {
+        alert('深掘り分析が停止されました')
+      } else {
+        alert('深掘り分析中にエラーが発生しました: ' + error.message)
+      }
       setPhase(1)
     } finally {
       setLoadingDeepAnalysis(false)
       setDeepAnalysisProgress('')
+      deepAnalysisAbortControllerRef.current = null
     }
   }
 
@@ -144,6 +168,9 @@ function PageSpeedAnalysisV2() {
     setLoadingDetailedPlans(true)
     setPhase(3)
 
+    // Create new AbortController
+    detailedPlansAbortControllerRef.current = new AbortController()
+
     const plans = {}
     const ownSite = analysisData.results.find(r => r.type === 'own')
 
@@ -152,7 +179,8 @@ function PageSpeedAnalysisV2() {
       const deepResponse = await fetch('/api/deep-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: myUrl, device })
+        body: JSON.stringify({ url: myUrl, device }),
+        signal: detailedPlansAbortControllerRef.current.signal
       })
       const deepData = await deepResponse.json()
 
@@ -168,7 +196,8 @@ function PageSpeedAnalysisV2() {
             deepAnalysisData: deepData,
             url: myUrl,
             device
-          })
+          }),
+          signal: detailedPlansAbortControllerRef.current.signal
         })
 
         if (!response.ok) {
@@ -184,9 +213,14 @@ function PageSpeedAnalysisV2() {
 
     } catch (error) {
       console.error('Detailed plan generation error:', error)
-      alert('詳細プラン生成中にエラーが発生しました: ' + error.message)
+      if (error.name === 'AbortError') {
+        alert('詳細プラン生成が停止されました')
+      } else {
+        alert('詳細プラン生成中にエラーが発生しました: ' + error.message)
+      }
     } finally {
       setLoadingDetailedPlans(false)
+      detailedPlansAbortControllerRef.current = null
     }
   }
 

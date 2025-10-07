@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
 import { Plus, Trash2, RefreshCw } from 'lucide-react'
 
@@ -21,6 +21,9 @@ function QueryRankShare() {
     const saved = sessionStorage.getItem('queryRank_tableData')
     return saved ? JSON.parse(saved) : []
   })
+
+  // AbortController for canceling requests
+  const abortControllerRef = useRef(null)
 
   // 状態変更時にセッションストレージに保存
   useEffect(() => { sessionStorage.setItem('queryRank_siteUrl', siteUrl) }, [siteUrl])
@@ -56,6 +59,9 @@ function QueryRankShare() {
     setChartData([])
     setTableData([])
 
+    // Create new AbortController
+    abortControllerRef.current = new AbortController()
+
     try {
       const response = await fetch('/api/query-rank-share', {
         method: 'POST',
@@ -66,7 +72,8 @@ function QueryRankShare() {
           endMonth,
           directories: directories.filter(d => d.trim() !== ''),
           viewMode
-        })
+        }),
+        signal: abortControllerRef.current.signal
       })
 
       if (!response.ok) {
@@ -86,11 +93,22 @@ function QueryRankShare() {
       console.log('取得したデータ:', data)
     } catch (err) {
       console.error('データ取得エラー:', err)
-      setError(err.message)
+      if (err.name === 'AbortError') {
+        setError('分析が停止されました')
+      } else {
+        setError(err.message)
+      }
       setChartData([])
       setTableData([])
     } finally {
       setLoading(false)
+      abortControllerRef.current = null
+    }
+  }
+
+  const handleStopAnalysis = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
     }
   }
 
@@ -201,14 +219,25 @@ function QueryRankShare() {
             </label>
           </div>
 
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 px-6 rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'データ取得中...' : 'データを取得'}
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-3 px-6 rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'データ取得中...' : 'データを取得'}
+            </button>
+
+            {loading && (
+              <button
+                onClick={handleStopAnalysis}
+                className="w-full bg-red-600 text-white py-2 px-6 rounded hover:bg-red-700"
+              >
+                ⏹ 分析を停止
+              </button>
+            )}
+          </div>
 
           {error && (
             <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">

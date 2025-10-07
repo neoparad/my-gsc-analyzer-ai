@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { Plus, Trash2, RefreshCw } from 'lucide-react'
 
@@ -38,6 +38,9 @@ function DirectoryAnalysis() {
       queryCount: true
     }
   })
+
+  // AbortController for canceling requests
+  const abortControllerRef = useRef(null)
 
   // 状態変更時にセッションストレージに保存
   useEffect(() => { sessionStorage.setItem('dirAnalysis_siteUrl', siteUrl) }, [siteUrl])
@@ -80,6 +83,9 @@ function DirectoryAnalysis() {
     setTableData([])
     setDirectoryTimeSeriesData({})
 
+    // Create new AbortController
+    abortControllerRef.current = new AbortController()
+
     try {
       const response = await fetch('/api/directory-analysis', {
         method: 'POST',
@@ -93,7 +99,8 @@ function DirectoryAnalysis() {
           granularity,
           searchType,
           showOthers
-        })
+        }),
+        signal: abortControllerRef.current.signal
       })
 
       if (!response.ok) {
@@ -116,12 +123,23 @@ function DirectoryAnalysis() {
       console.log('directoryTimeSeriesData keys:', Object.keys(data.directoryTimeSeriesData || {}))
     } catch (err) {
       console.error('データ取得エラー:', err)
-      setError(err.message)
+      if (err.name === 'AbortError') {
+        setError('分析が停止されました')
+      } else {
+        setError(err.message)
+      }
       setChartData([])
       setTableData([])
       setDirectoryTimeSeriesData({})
     } finally {
       setLoading(false)
+      abortControllerRef.current = null
+    }
+  }
+
+  const handleStopAnalysis = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
     }
   }
 
@@ -361,14 +379,25 @@ function DirectoryAnalysis() {
             </div>
           </div>
 
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 px-6 rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'データ取得中...' : 'データを取得'}
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-3 px-6 rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'データ取得中...' : 'データを取得'}
+            </button>
+
+            {loading && (
+              <button
+                onClick={handleStopAnalysis}
+                className="w-full bg-red-600 text-white py-2 px-6 rounded hover:bg-red-700"
+              >
+                ⏹ 分析を停止
+              </button>
+            )}
+          </div>
 
           {error && (
             <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">

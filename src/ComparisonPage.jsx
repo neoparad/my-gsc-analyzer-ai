@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter, ReferenceLine, Legend, Line, LineChart } from 'recharts'
 import { Download, ExternalLink, TrendingUp, TrendingDown, Plus, Minus, BarChart3, Table, Settings, BarChart2, Brain } from 'lucide-react'
 import AnalysisSettingModal from './AnalysisSettingModal'
@@ -100,6 +100,9 @@ function ComparisonPage() {
   const [aiResult, setAiResult] = useState(null)
   const [analysisError, setAnalysisError] = useState('')
 
+  // AbortController for canceling requests
+  const abortControllerRef = useRef(null)
+
   // Basic認証ヘッダーを取得する関数
   const getBasicAuthHeader = () => {
     // ブラウザが自動的にBasic認証を処理するため、通常は不要
@@ -118,6 +121,9 @@ function ComparisonPage() {
     setLoading(true)
     setError('')
 
+    // Create new AbortController
+    abortControllerRef.current = new AbortController()
+
     try {
       // Basic認証ヘッダーを取得
       const authHeader = getBasicAuthHeader()
@@ -129,7 +135,8 @@ function ComparisonPage() {
           'Content-Type': 'application/json',
           ...(authHeader && { 'Authorization': authHeader })
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
+        signal: abortControllerRef.current.signal
       })
 
       if (!response.ok) {
@@ -142,9 +149,20 @@ function ComparisonPage() {
       setCurrentPage(1)
       setStatusFilter('all')
     } catch (err) {
-      setError(err.message)
+      if (err.name === 'AbortError') {
+        setError('分析が停止されました')
+      } else {
+        setError(err.message)
+      }
     } finally {
       setLoading(false)
+      abortControllerRef.current = null
+    }
+  }
+
+  const handleStopAnalysis = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
     }
   }
 
@@ -385,31 +403,82 @@ function ComparisonPage() {
       const authHeader = getBasicAuthHeader()
       const allKeywords = [...results.improved_queries, ...results.declined_queries]
 
-      console.log('📊 統計分析開始:', { keywordCount: allKeywords.length, settings: analysisSettings })
+      // 必要なフィールドのみを抽出してデータサイズを最小化
+      const validKeywords = allKeywords
+        .filter(kw => kw.past_position && kw.current_position && typeof kw.change === 'number')
+        .map(kw => ({
+          query: kw.query,
+          change: kw.change,
+          past_position: kw.past_position,
+          current_position: kw.current_position,
+          past_impressions: kw.past_impressions || 0,
+          current_impressions: kw.current_impressions || 0,
+          past_clicks: kw.past_clicks || 0,
+          current_clicks: kw.current_clicks || 0
+        }))
 
-      const response = await fetch('/api/detailed-analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authHeader && { 'Authorization': authHeader })
-        },
-        body: JSON.stringify({
-          keywords: allKeywords,
-          settings: analysisSettings || {}
-        })
+      console.log('📊 統計分析開始:', {
+        totalKeywords: allKeywords.length,
+        validKeywords: validKeywords.length,
+        estimatedSize: (JSON.stringify(validKeywords).length / 1024 / 1024).toFixed(2) + 'MB',
+        settings: analysisSettings
       })
 
-      console.log('📊 統計分析レスポンス:', { status: response.status, ok: response.ok })
+      // データサイズが大きい場合はバッチ処理
+      const MAX_SIZE_MB = 3.5 // Vercel制限4.5MBより少し小さく
+      const testPayload = JSON.stringify({ keywords: validKeywords, settings: analysisSettings || {} })
+      const payloadSizeMB = testPayload.length / 1024 / 1024
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('❌ 統計分析エラー:', errorData)
-        throw new Error(errorData.error || errorData.details || `統計分析に失敗しました (${response.status})`)
+      if (payloadSizeMB > MAX_SIZE_MB) {
+        // サイズが大きすぎる場合は、重要なデータを優先してサンプリング
+        const sampledKeywords = validKeywords
+          .sort((a, b) => Math.abs(b.change || 0) - Math.abs(a.change || 0))
+          .slice(0, Math.floor(validKeywords.length * (MAX_SIZE_MB / payloadSizeMB)))
+
+        console.warn(`⚠️ データサイズが大きいため、${validKeywords.length}件から${sampledKeywords.length}件にサンプリング`)
+
+        const response = await fetch('/api/detailed-analysis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authHeader && { 'Authorization': authHeader })
+          },
+          body: JSON.stringify({
+            keywords: sampledKeywords,
+            settings: analysisSettings || {}
+          })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || errorData.details || `統計分析に失敗しました (${response.status})`)
+        }
+
+        const data = await response.json()
+        setStatisticalResult(data)
+      } else {
+        // サイズが問題ない場合は全データを送信
+        const response = await fetch('/api/detailed-analysis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authHeader && { 'Authorization': authHeader })
+          },
+          body: JSON.stringify({
+            keywords: validKeywords,
+            settings: analysisSettings || {}
+          })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || errorData.details || `統計分析に失敗しました (${response.status})`)
+        }
+
+        const data = await response.json()
+        console.log('✅ 統計分析成功:', data)
+        setStatisticalResult(data)
       }
-
-      const data = await response.json()
-      console.log('✅ 統計分析成功:', data)
-      setStatisticalResult(data)
     } catch (error) {
       console.error('❌ 統計分析例外:', error)
       setAnalysisError(`統計分析エラー: ${error.message}`)
@@ -428,32 +497,90 @@ function ComparisonPage() {
       const authHeader = getBasicAuthHeader()
       const allKeywords = [...results.improved_queries, ...results.declined_queries]
 
-      console.log('🤖 AI分析開始:', { keywordCount: allKeywords.length, settings: analysisSettings, hasClusteringResult: !!statisticalResult?.clustering })
+      // 必要なフィールドのみを抽出してデータサイズを最小化
+      const validKeywords = allKeywords
+        .filter(kw => kw.past_position && kw.current_position && typeof kw.change === 'number')
+        .map(kw => ({
+          query: kw.query,
+          change: kw.change,
+          past_position: kw.past_position,
+          current_position: kw.current_position,
+          past_impressions: kw.past_impressions || 0,
+          current_impressions: kw.current_impressions || 0,
+          past_clicks: kw.past_clicks || 0,
+          current_clicks: kw.current_clicks || 0
+        }))
 
-      const response = await fetch('/api/ai-analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authHeader && { 'Authorization': authHeader })
-        },
-        body: JSON.stringify({
-          keywords: allKeywords,
-          settings: analysisSettings || {},
-          clusteringResult: statisticalResult?.clustering
-        })
+      console.log('🤖 AI分析開始:', {
+        totalKeywords: allKeywords.length,
+        validKeywords: validKeywords.length,
+        estimatedSize: (JSON.stringify(validKeywords).length / 1024 / 1024).toFixed(2) + 'MB',
+        settings: analysisSettings,
+        hasClusteringResult: !!statisticalResult?.clustering
       })
 
-      console.log('🤖 AI分析レスポンス:', { status: response.status, ok: response.ok })
+      // データサイズが大きい場合はバッチ処理
+      const MAX_SIZE_MB = 3.5 // Vercel制限4.5MBより少し小さく
+      const testPayload = JSON.stringify({
+        keywords: validKeywords,
+        settings: analysisSettings || {},
+        clusteringResult: statisticalResult?.clustering
+      })
+      const payloadSizeMB = testPayload.length / 1024 / 1024
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('❌ AI分析エラー:', errorData)
-        throw new Error(errorData.error || errorData.details || `AI分析に失敗しました (${response.status})`)
+      if (payloadSizeMB > MAX_SIZE_MB) {
+        // サイズが大きすぎる場合は、重要なデータを優先してサンプリング
+        const sampledKeywords = validKeywords
+          .sort((a, b) => Math.abs(b.change || 0) - Math.abs(a.change || 0))
+          .slice(0, Math.floor(validKeywords.length * (MAX_SIZE_MB / payloadSizeMB)))
+
+        console.warn(`⚠️ データサイズが大きいため、${validKeywords.length}件から${sampledKeywords.length}件にサンプリング`)
+
+        const response = await fetch('/api/ai-analysis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authHeader && { 'Authorization': authHeader })
+          },
+          body: JSON.stringify({
+            keywords: sampledKeywords,
+            settings: analysisSettings || {},
+            clusteringResult: statisticalResult?.clustering
+          })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || errorData.details || `AI分析に失敗しました (${response.status})`)
+        }
+
+        const data = await response.json()
+        console.log('✅ AI分析成功:', data)
+        setAiResult(data)
+      } else {
+        // サイズが問題ない場合は全データを送信
+        const response = await fetch('/api/ai-analysis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authHeader && { 'Authorization': authHeader })
+          },
+          body: JSON.stringify({
+            keywords: validKeywords,
+            settings: analysisSettings || {},
+            clusteringResult: statisticalResult?.clustering
+          })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || errorData.details || `AI分析に失敗しました (${response.status})`)
+        }
+
+        const data = await response.json()
+        console.log('✅ AI分析成功:', data)
+        setAiResult(data)
       }
-
-      const data = await response.json()
-      console.log('✅ AI分析成功:', data)
-      setAiResult(data)
     } catch (error) {
       console.error('❌ AI分析例外:', error)
       setAnalysisError(`AI分析エラー: ${error.message}`)
@@ -678,13 +805,24 @@ function ComparisonPage() {
             </div>
           </div>
 
-          <button
-            onClick={handleAnalyze}
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-md hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
-          >
-            {loading ? '分析中...' : '分析を開始'}
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={handleAnalyze}
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-md hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+            >
+              {loading ? '分析中...' : '分析を開始'}
+            </button>
+
+            {loading && (
+              <button
+                onClick={handleStopAnalysis}
+                className="w-full bg-red-600 text-white py-2 px-6 rounded-md hover:bg-red-700 font-semibold"
+              >
+                ⏹ 分析を停止
+              </button>
+            )}
+          </div>
 
           {error && (
             <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
