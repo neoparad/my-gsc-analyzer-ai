@@ -1,5 +1,5 @@
 import { google } from 'googleapis'
-import { checkBasicAuth } from '../lib/auth.js'
+import { checkBasicAuth } from './_auth.js'
 
 export default async function handler(req, res) {
   // Basic認証チェック

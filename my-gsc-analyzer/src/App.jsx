@@ -1,48 +1,25 @@
-import React, { useState, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter, ReferenceLine, Legend, Line, LineChart } from 'recharts'
-import { Download, ExternalLink, TrendingUp, TrendingDown, Plus, Minus, BarChart3, Table, Settings, BarChart2, Brain } from 'lucide-react'
-import AnalysisSettingModal from './AnalysisSettingModal'
-import StatisticalAnalysisResult from './StatisticalAnalysisResult'
-import AIAnalysisResult from './AIAnalysisResult'
+import React, { useState } from 'react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter, ReferenceLine } from 'recharts'
+import { Download, ExternalLink, TrendingUp, TrendingDown, Plus, Minus, BarChart3, Table } from 'lucide-react'
 
-function ComparisonPage() {
-  const [formData, setFormData] = useState(() => {
-    const saved = sessionStorage.getItem('comparison_formData')
-    return saved ? JSON.parse(saved) : {
-      site_url: '',
-      past_start: '',
-      past_end: '',
-      current_start: '',
-      current_end: '',
-      url_filter: '',
-      query_filter: ''
-    }
+function App() {
+  const [formData, setFormData] = useState({
+    site_url: '',
+    past_start: '',
+    past_end: '',
+    current_start: '',
+    current_end: '',
+    url_filter: '',
+    query_filter: ''
   })
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [results, setResults] = useState(() => {
-    const saved = sessionStorage.getItem('comparison_results')
-    return saved ? JSON.parse(saved) : null
-  })
-  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('comparison_activeTab') || 'improved')
+  const [results, setResults] = useState(null)
+  const [activeTab, setActiveTab] = useState('improved')
   const [currentPage, setCurrentPage] = useState(1)
-
-  // 状態変更時にセッションストレージに保存
-  useEffect(() => { sessionStorage.setItem('comparison_formData', JSON.stringify(formData)) }, [formData])
-  useEffect(() => { if (results) sessionStorage.setItem('comparison_results', JSON.stringify(results)) }, [results])
-  useEffect(() => { sessionStorage.setItem('comparison_activeTab', activeTab) }, [activeTab])
   const [itemsPerPage, setItemsPerPage] = useState(50)
   const [statusFilter, setStatusFilter] = useState('all')
-
-  // 詳細分析関連のstate
-  const [showSettingModal, setShowSettingModal] = useState(false)
-  const [analysisSettings, setAnalysisSettings] = useState(null)
-  const [statisticalLoading, setStatisticalLoading] = useState(false)
-  const [aiLoading, setAiLoading] = useState(false)
-  const [statisticalResult, setStatisticalResult] = useState(null)
-  const [aiResult, setAiResult] = useState(null)
-  const [analysisError, setAnalysisError] = useState('')
 
   // Basic認証ヘッダーを取得する関数
   const getBasicAuthHeader = () => {
@@ -205,43 +182,19 @@ function ComparisonPage() {
   const getScatterData = () => {
     if (!results) return { data: [], stats: { improvedCount: 0, declinedCount: 0, avgChange: '0' } }
 
-    // 元の配列を保持しながらマージ
-    console.log('Original improved_queries count:', results.improved_queries.length)
-    console.log('Original declined_queries count:', results.declined_queries.length)
-    console.log('Sample declined_queries:', results.declined_queries.slice(0, 3))
-
-    const improvedWithSource = results.improved_queries.map(item => ({ ...item, _source: 'improved' }))
-    const declinedWithSource = results.declined_queries.map(item => ({ ...item, _source: 'declined' }))
-    const allData = [...improvedWithSource, ...declinedWithSource]
-
-    // フィルタ条件を緩和して、両方のデータをバランスよく取得
-    const improvedFiltered = improvedWithSource.filter(item =>
+    const allData = [...results.improved_queries, ...results.declined_queries]
+    const validData = allData.filter(item =>
       item.past_position &&
       item.current_position &&
+      item.past_position <= 50 &&
+      item.current_position <= 50 &&
       typeof item.past_position === 'number' &&
       typeof item.current_position === 'number'
-    ).slice(0, 1000)  // 最大1000件
+    ).slice(0, 500)
 
-    const declinedFiltered = declinedWithSource.filter(item =>
-      item.past_position &&
-      item.current_position &&
-      typeof item.past_position === 'number' &&
-      typeof item.current_position === 'number'
-    ).slice(0, 1000)  // 最大1000件
-
-    const validData = [...improvedFiltered, ...declinedFiltered]
-
-    console.log('After filter - Improved:', improvedFiltered.length, 'Declined:', declinedFiltered.length)
-
-    // _sourceプロパティで分類
-    const improved = validData.filter(item => item._source === 'improved')
-    const declined = validData.filter(item => item._source === 'declined')
-
-    // デバッグ
-    console.log('Total validData:', validData.length)
-    console.log('Improved:', improved.length, 'Declined:', declined.length)
-    console.log('Sample improved:', improved.slice(0, 2))
-    console.log('Sample declined:', declined.slice(0, 2))
+    // 改善と悪化に分類
+    const improved = validData.filter(item => item.current_position < item.past_position)
+    const declined = validData.filter(item => item.current_position > item.past_position)
 
     // 統計計算
     const allChanges = validData.map(item => item.past_position - item.current_position)
@@ -265,36 +218,8 @@ function ComparisonPage() {
       }))
     ]
 
-    // 回帰直線の計算（近似曲線用）
-    const calculateTrendline = (data) => {
-      if (data.length < 2) return []
-
-      const n = data.length
-      const sumX = data.reduce((sum, d) => sum + d.x, 0)
-      const sumY = data.reduce((sum, d) => sum + d.y, 0)
-      const sumXY = data.reduce((sum, d) => sum + d.x * d.y, 0)
-      const sumX2 = data.reduce((sum, d) => sum + d.x * d.x, 0)
-
-      const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
-      const intercept = (sumY - slope * sumX) / n
-
-      console.log('トレンドライン計算:', { slope, intercept, dataPoints: n })
-
-      // トレンドライン用のポイントを生成
-      const minX = Math.min(...data.map(d => d.x))
-      const maxX = Math.max(...data.map(d => d.x))
-
-      return [
-        { x: minX, y: slope * minX + intercept },
-        { x: maxX, y: slope * maxX + intercept }
-      ]
-    }
-
-    const trendlineData = scatterData.length > 0 ? calculateTrendline(scatterData) : []
-
     return {
       data: scatterData,
-      trendline: trendlineData,
       stats: {
         improvedCount: improved.length,
         declinedCount: declined.length,
@@ -313,215 +238,6 @@ function ComparisonPage() {
         count
       }))
   }
-
-  // 詳細分析関連の関数
-  const handleSettingsSave = (settings) => {
-    setAnalysisSettings(settings)
-  }
-
-  const runStatisticalAnalysis = async () => {
-    if (!results) return
-
-    setStatisticalLoading(true)
-    setAnalysisError('')
-
-    try {
-      const authHeader = getBasicAuthHeader()
-      const allKeywords = [...results.improved_queries, ...results.declined_queries]
-
-      console.log('📊 統計分析開始:', { keywordCount: allKeywords.length, settings: analysisSettings })
-
-      const response = await fetch('/api/detailed-analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authHeader && { 'Authorization': authHeader })
-        },
-        body: JSON.stringify({
-          keywords: allKeywords,
-          settings: analysisSettings || {}
-        })
-      })
-
-      console.log('📊 統計分析レスポンス:', { status: response.status, ok: response.ok })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('❌ 統計分析エラー:', errorData)
-        throw new Error(errorData.error || errorData.details || `統計分析に失敗しました (${response.status})`)
-      }
-
-      const data = await response.json()
-      console.log('✅ 統計分析成功:', data)
-      setStatisticalResult(data)
-    } catch (error) {
-      console.error('❌ 統計分析例外:', error)
-      setAnalysisError(`統計分析エラー: ${error.message}`)
-    } finally {
-      setStatisticalLoading(false)
-    }
-  }
-
-  const runAIAnalysis = async () => {
-    if (!results) return
-
-    setAiLoading(true)
-    setAnalysisError('')
-
-    try {
-      const authHeader = getBasicAuthHeader()
-      const allKeywords = [...results.improved_queries, ...results.declined_queries]
-
-      console.log('🤖 AI分析開始:', { keywordCount: allKeywords.length, settings: analysisSettings, hasClusteringResult: !!statisticalResult?.clustering })
-
-      const response = await fetch('/api/ai-analysis', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authHeader && { 'Authorization': authHeader })
-        },
-        body: JSON.stringify({
-          keywords: allKeywords,
-          settings: analysisSettings || {},
-          clusteringResult: statisticalResult?.clustering
-        })
-      })
-
-      console.log('🤖 AI分析レスポンス:', { status: response.status, ok: response.ok })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('❌ AI分析エラー:', errorData)
-        throw new Error(errorData.error || errorData.details || `AI分析に失敗しました (${response.status})`)
-      }
-
-      const data = await response.json()
-      console.log('✅ AI分析成功:', data)
-      setAiResult(data)
-    } catch (error) {
-      console.error('❌ AI分析例外:', error)
-      setAnalysisError(`AI分析エラー: ${error.message}`)
-    } finally {
-      setAiLoading(false)
-    }
-  }
-
-  const runBothAnalyses = async () => {
-    await runStatisticalAnalysis()
-    await runAIAnalysis()
-  }
-
-  // 散布図コンポーネント（両タブで共通使用）
-  const RankingScatterPlot = () => (
-    <div className="mb-8">
-      <div className="bg-gray-50 p-6 rounded-lg">
-        <div className="mb-4">
-          <h3 className="text-xl font-bold mb-2 flex items-center">
-            <BarChart3 className="w-6 h-6 mr-2" />
-            Changes in Keyword Rankings with Overall Average Change
-          </h3>
-          <p className="text-sm text-gray-600">
-            このグラフは、キーワードランキングの勝者と敗者を視覚化し、全体的な成績が良いか悪いかを示します。緑色は順位改善、赤色は順位悪化を表します。
-          </p>
-        </div>
-
-        <div className="flex justify-between items-center mb-4">
-          <div className="flex gap-6">
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-              <span className="text-sm font-medium">Improved (n={getScatterData().stats.improvedCount})</span>
-            </div>
-            <div className="flex items-center">
-              <div className="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
-              <span className="text-sm font-medium">Worsened (n={getScatterData().stats.declinedCount})</span>
-            </div>
-          </div>
-          <div className="bg-yellow-100 px-4 py-2 rounded-lg border-2 border-yellow-400">
-            <span className="text-sm font-bold">Overall Avg. Change: {parseFloat(getScatterData().stats.avgChange) > 0 ? '+' : ''}{getScatterData().stats.avgChange}</span>
-          </div>
-        </div>
-
-        <ResponsiveContainer width="100%" height={500}>
-          <ScatterChart data={getScatterData().data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              type="number"
-              dataKey="x"
-              domain={[0, 'auto']}
-              label={{ value: 'Previous Position', position: 'insideBottom', offset: -5 }}
-            />
-            <YAxis
-              type="number"
-              dataKey="y"
-              domain={[0, 'auto']}
-              label={{ value: 'Current Position', angle: -90, position: 'insideLeft' }}
-            />
-            <Legend
-              verticalAlign="top"
-              height={36}
-              wrapperStyle={{ paddingBottom: '10px' }}
-            />
-            <Tooltip
-              content={({ active, payload }) => {
-                if (active && payload && payload[0]) {
-                  const data = payload[0].payload
-                  return (
-                    <div className="bg-white p-3 border rounded shadow">
-                      <p className="font-medium">{data.query}</p>
-                      <p>過去順位: {Math.round(data.x * 10) / 10}</p>
-                      <p>現在順位: {Math.round(data.y * 10) / 10}</p>
-                      <p>変化: {data.change > 0 ? '+' : ''}{Math.round(data.change * 10) / 10}</p>
-                    </div>
-                  )
-                }
-                return null
-              }}
-            />
-
-            {/* 対角線（変化なし） - データの最大値に合わせる */}
-            <ReferenceLine
-              stroke="#3b82f6"
-              strokeWidth={2}
-              segment={[{x: 0, y: 0}, {x: 200, y: 200}]}
-            />
-
-            {/* 近似曲線（トレンドライン） */}
-            <ReferenceLine
-              stroke="#ff9800"
-              strokeWidth={2}
-              strokeDasharray="5 5"
-              segment={getScatterData().trendline.length === 2 ? [
-                {x: getScatterData().trendline[0].x, y: getScatterData().trendline[0].y},
-                {x: getScatterData().trendline[1].x, y: getScatterData().trendline[1].y}
-              ] : null}
-            />
-
-            {/* 改善クエリ（緑色） */}
-            <Scatter
-              data={getScatterData().data.filter(item => item.type === 'improved')}
-              fill="#22c55e"
-              fillOpacity={0.7}
-              stroke="#15803d"
-              strokeWidth={1}
-              r={4}
-              name="改善"
-            />
-
-            {/* 悪化クエリ（赤色） */}
-            <Scatter
-              data={getScatterData().data.filter(item => item.type === 'declined')}
-              fill="#ef4444"
-              fillOpacity={0.7}
-              stroke="#dc2626"
-              strokeWidth={1}
-              r={4}
-              name="悪化"
-            />
-          </ScatterChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
@@ -729,9 +445,130 @@ function ComparisonPage() {
                   </div>
                 </div>
 
-                {/* ========== Scatter Plot - Full Width (両タブ共通) ========== */}
-                <RankingScatterPlot />
-                {/* ========== End of Scatter Plot ========== */}
+                {/* Charts */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                  {/* Scatter Plot */}
+                  <div className="bg-gray-50 p-6 rounded-lg">
+                    <div className="flex justify-between items-start mb-4">
+                      <h3 className="text-lg font-semibold flex items-center">
+                        <BarChart3 className="w-5 h-5 mr-2" />
+                        順位変化散布図
+                      </h3>
+                      <div className="text-right">
+                        <div className="bg-white p-3 rounded-lg border">
+                          <div className="text-sm text-gray-600 mb-1">平均順位変動</div>
+                          <div className={`text-2xl font-bold ${
+                            parseFloat(getScatterData().stats.avgChange) > 0 ? 'text-green-600' :
+                            parseFloat(getScatterData().stats.avgChange) < 0 ? 'text-red-600' : 'text-gray-600'
+                          }`}>
+                            {parseFloat(getScatterData().stats.avgChange) > 0 ? '+' : ''}{getScatterData().stats.avgChange}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-4 mb-4">
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                        <span className="text-sm">改善: {getScatterData().stats.improvedCount}件</span>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
+                        <span className="text-sm">悪化: {getScatterData().stats.declinedCount}件</span>
+                      </div>
+                    </div>
+
+                    <ResponsiveContainer width="100%" height={300}>
+                      <ScatterChart data={getScatterData().data}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          type="number"
+                          dataKey="x"
+                          domain={['dataMin', 50]}
+                          tickCount={6}
+                          label={{ value: '過去順位', position: 'insideBottom', offset: -10 }}
+                        />
+                        <YAxis
+                          type="number"
+                          dataKey="y"
+                          domain={['dataMin', 50]}
+                          tickCount={6}
+                          label={{ value: '現在順位', angle: -90, position: 'insideLeft' }}
+                        />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload[0]) {
+                              const data = payload[0].payload
+                              return (
+                                <div className="bg-white p-3 border rounded shadow">
+                                  <p className="font-medium">{data.query}</p>
+                                  <p>過去順位: {Math.round(data.x * 10) / 10}</p>
+                                  <p>現在順位: {Math.round(data.y * 10) / 10}</p>
+                                  <p>変化: {data.change > 0 ? '+' : ''}{Math.round(data.change * 10) / 10}</p>
+                                </div>
+                              )
+                            }
+                            return null
+                          }}
+                        />
+
+                        {/* 対角線（変化なし） */}
+                        <ReferenceLine
+                          stroke="#666"
+                          strokeDasharray="5 5"
+                          segment={[{x: 1, y: 1}, {x: 50, y: 50}]}
+                        />
+
+                        {/* 改善クエリ（緑色） */}
+                        <Scatter
+                          data={getScatterData().data.filter(item => item.type === 'improved')}
+                          fill="#22c55e"
+                          fillOpacity={0.7}
+                          stroke="#15803d"
+                          strokeWidth={1}
+                          r={4}
+                          name="改善"
+                        />
+
+                        {/* 悪化クエリ（赤色） */}
+                        <Scatter
+                          data={getScatterData().data.filter(item => item.type === 'declined')}
+                          fill="#ef4444"
+                          fillOpacity={0.7}
+                          stroke="#dc2626"
+                          strokeWidth={1}
+                          r={4}
+                          name="悪化"
+                        />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Directory Analysis */}
+                  <div className="bg-gray-50 p-6 rounded-lg">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center">
+                      <BarChart3 className="w-5 h-5 mr-2" />
+                      ディレクトリ別クエリ数分析 (Top 10)
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-4">
+                      各ディレクトリが獲得している検索クエリの数を表示
+                    </p>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={getDirectoryData()}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="directory"
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis />
+                        <Tooltip />
+                        <Bar dataKey="count" fill="#3b82f6" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
 
                 {/* Action Buttons */}
                 <div className="flex flex-wrap gap-4 mb-6">
@@ -898,141 +735,11 @@ function ComparisonPage() {
                 </div>
               </div>
             </div>
-
-            {/* 詳細分析セクション */}
-            <div className="bg-white rounded-lg shadow-lg p-6 mt-8">
-              <h2 className="text-2xl font-bold text-gray-800 mb-6">さらに詳しく分析する</h2>
-
-              {/* 設定ボタン */}
-              <div className="mb-6">
-                <button
-                  onClick={() => setShowSettingModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  <Settings className="w-4 h-4" />
-                  ⚙️ 分析設定
-                  {!analysisSettings && (
-                    <span className="ml-2 px-2 py-0.5 bg-blue-500 text-white text-xs rounded-full">
-                      初回設定が必要です
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* 分析ボタン */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <button
-                  onClick={runStatisticalAnalysis}
-                  disabled={statisticalLoading}
-                  className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <BarChart2 className="w-5 h-5" />
-                  <div className="text-left">
-                    <div className="font-semibold">📊 詳細を統計分析</div>
-                    <div className="text-xs opacity-90">即座に表示</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={runAIAnalysis}
-                  disabled={aiLoading}
-                  className="flex items-center justify-center gap-2 bg-purple-600 text-white px-6 py-4 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Brain className="w-5 h-5" />
-                  <div className="text-left">
-                    <div className="font-semibold">🤖 詳細をAI分析</div>
-                    <div className="text-xs opacity-90">1-2分程度</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={runBothAnalyses}
-                  disabled={statisticalLoading || aiLoading}
-                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="text-left">
-                    <div className="font-semibold">両方実行</div>
-                    <div className="text-xs opacity-90">統計 + AI分析</div>
-                  </div>
-                </button>
-              </div>
-
-              {/* ローディング表示 */}
-              {(statisticalLoading || aiLoading) && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                    <div>
-                      {statisticalLoading && <p className="text-sm text-blue-800">📊 統計分析中...</p>}
-                      {aiLoading && <p className="text-sm text-blue-800">🤖 AI分析中... (1-2分程度かかります)</p>}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* エラー表示 */}
-              {analysisError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                  <p className="text-sm text-red-800">⚠️ {analysisError}</p>
-                </div>
-              )}
-
-              {/* 統計分析結果 */}
-              {statisticalResult && (
-                <div className="mb-6">
-                  <h3 className="text-xl font-bold text-gray-800 mb-4">📊 統計分析結果</h3>
-                  <StatisticalAnalysisResult result={statisticalResult} />
-                </div>
-              )}
-
-              {/* AI分析結果 */}
-              {aiResult && (
-                <div className="mb-6">
-                  <h3 className="text-xl font-bold text-gray-800 mb-4">🤖 AI分析結果</h3>
-                  <AIAnalysisResult result={aiResult} />
-                </div>
-              )}
-
-              {/* 初期状態のヒント */}
-              {!statisticalResult && !aiResult && !statisticalLoading && !aiLoading && (
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-                  <h3 className="text-lg font-semibold text-gray-700 mb-3">📌 詳細分析でできること</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <h4 className="font-medium text-gray-800 mb-2">統計分析:</h4>
-                      <ul className="text-sm text-gray-600 space-y-1">
-                        <li>• クラスタリング分析</li>
-                        <li>• 相関分析</li>
-                        <li>• 変動率加速度分析</li>
-                        <li>• 基本セグメント比較</li>
-                      </ul>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-800 mb-2">AI分析:</h4>
-                      <ul className="text-sm text-gray-600 space-y-1">
-                        <li>• 検索意図別の変動傾向</li>
-                        <li>• 自動カテゴリ分類</li>
-                        <li>• クラスタ結果の意味解釈</li>
-                        <li>• ビジネス示唆の提供</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
           </>
         )}
       </div>
-
-      {/* 分析設定モーダル */}
-      <AnalysisSettingModal
-        isOpen={showSettingModal}
-        onClose={() => setShowSettingModal(false)}
-        onSave={handleSettingsSave}
-        keywords={results ? [...results.improved_queries, ...results.declined_queries] : []}
-      />
     </div>
   )
 }
 
-export default ComparisonPage
+export default App

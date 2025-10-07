@@ -6,19 +6,14 @@ import dotenv from 'dotenv'
 import analyzeHandler from './api/analyze.js'
 import chatHandler from './api/chat.js'
 import createSheetHandler from './api/create_sheet.js'
-import helloHandler from './api/hello.js'
 import detailedAnalysisHandler from './api/detailed-analysis.js'
 import aiAnalysisHandler from './api/ai-analysis.js'
 import rankTrackerHandler from './api/rank-tracker.js'
-import rankTrackerStatsHandler from './api/rank-tracker-stats.js'
 import rankTrackerAiHandler from './api/rank-tracker-ai.js'
 import directoryAnalysisHandler from './api/directory-analysis.js'
 import queryRankShareHandler from './api/query-rank-share.js'
 import analyzeCompetitiveHandler from './api/analyze-competitive.js'
-import generateImprovementPlanHandler from './api/generate-improvement-plan.js'
 import deepAnalysisHandler from './api/deep-analysis.js'
-import comprehensiveAnalysisHandler from './api/comprehensive-analysis.js'
-import detailedImprovementHandler from './api/detailed-improvement.js'
 import loginHandler from './api/login.js'
 
 dotenv.config()
@@ -47,19 +42,14 @@ app.post('/api/login', wrapHandler(loginHandler))
 app.post('/api/analyze', wrapHandler(analyzeHandler))
 app.post('/api/chat', wrapHandler(chatHandler))
 app.post('/api/create_sheet', wrapHandler(createSheetHandler))
-app.all('/api/hello', wrapHandler(helloHandler))
 app.post('/api/detailed-analysis', wrapHandler(detailedAnalysisHandler))
 app.post('/api/ai-analysis', wrapHandler(aiAnalysisHandler))
 app.post('/api/rank-tracker', wrapHandler(rankTrackerHandler))
-app.post('/api/rank-tracker-stats', wrapHandler(rankTrackerStatsHandler))
 app.post('/api/rank-tracker-ai', wrapHandler(rankTrackerAiHandler))
 app.post('/api/directory-analysis', wrapHandler(directoryAnalysisHandler))
 app.post('/api/query-rank-share', wrapHandler(queryRankShareHandler))
 app.post('/api/analyze-competitive', wrapHandler(analyzeCompetitiveHandler))
-app.post('/api/generate-improvement-plan', wrapHandler(generateImprovementPlanHandler))
 app.post('/api/deep-analysis', wrapHandler(deepAnalysisHandler))
-app.post('/api/comprehensive-analysis', wrapHandler(comprehensiveAnalysisHandler))
-app.post('/api/detailed-improvement', wrapHandler(detailedImprovementHandler))
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -76,15 +66,10 @@ app.listen(PORT, () => {
   console.log(`   POST /api/detailed-analysis`)
   console.log(`   POST /api/ai-analysis`)
   console.log(`   POST /api/rank-tracker`)
-  console.log(`   POST /api/rank-tracker-stats`)
   console.log(`   POST /api/rank-tracker-ai`)
   console.log(`   POST /api/directory-analysis`)
   console.log(`   POST /api/query-rank-share`)
   console.log(`   POST /api/analyze-competitive`)
-  console.log(`   POST /api/generate-improvement-plan`)
   console.log(`   POST /api/deep-analysis`)
-  console.log(`   POST /api/comprehensive-analysis`)
-  console.log(`   POST /api/detailed-improvement`)
-  console.log(`   GET  /api/hello`)
   console.log(`   GET  /api/health\n`)
 })

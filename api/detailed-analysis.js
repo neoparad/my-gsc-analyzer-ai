@@ -1,4 +1,4 @@
-import { checkBasicAuth } from './_auth.js'
+import { checkBasicAuth } from '../lib/auth.js'
 import * as stats from 'simple-statistics'
 
 export default async function handler(req, res) {

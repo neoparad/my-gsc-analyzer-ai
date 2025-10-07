@@ -4,7 +4,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import RankTrackerStatisticalResult from './RankTrackerStatisticalResult'
 import RankTrackerAIResult from './RankTrackerAIResult'
 
+import { useAuth } from './AuthContext'
 function RankTracker() {
+  const { user } = useAuth()
   const [siteUrl, setSiteUrl] = useState('https://www.tabirai.net/')
   const [queries, setQueries] = useState([])
   const [newQuery, setNewQuery] = useState('')
@@ -17,7 +19,9 @@ function RankTracker() {
   const [analyzingAI, setAnalyzingAI] = useState(false)
 
   useEffect(() => {
-    const saved = localStorage.getItem('rankTrackerQueries')
+    if (!user?.username) return
+    const storageKey = `rankTrackerQueries_${user.username}`
+    const saved = localStorage.getItem(storageKey)
     if (saved) {
       try {
         setQueries(JSON.parse(saved))
@@ -25,13 +29,14 @@ function RankTracker() {
         console.error('Failed to load queries:', e)
       }
     }
-  }, [])
+  }, [user])
 
   useEffect(() => {
-    if (queries.length > 0) {
-      localStorage.setItem('rankTrackerQueries', JSON.stringify(queries))
+    if (queries.length > 0 && user?.username) {
+      const storageKey = `rankTrackerQueries_${user.username}`
+      localStorage.setItem(storageKey, JSON.stringify(queries))
     }
-  }, [queries])
+  }, [queries, user])
 
   const addQuery = () => {
     if (!newQuery.trim()) return

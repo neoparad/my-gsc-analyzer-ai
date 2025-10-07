@@ -29,27 +29,12 @@ export default function handler(req, res) {
     }
 
     // 静的ファイルのパスを構築
-    const distPath = path.join(__dirname, '..', 'dist')
-
-    // distフォルダが存在しない場合（開発中）は404を返す
-    if (!fs.existsSync(distPath)) {
-      res.status(404).json({
-        error: 'Not found in production mode. Use Vite dev server for development.',
-        path: requestPath
-      })
-      return
-    }
-
-    const filePath = path.join(distPath, requestPath.replace(/^\//, ''))
+    const filePath = path.join(__dirname, '..', 'dist', requestPath.replace(/^\//, ''))
 
     // ファイルが存在するか確認
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       // SPAの場合、存在しないパスはindex.htmlを返す
-      const indexPath = path.join(distPath, 'index.html')
-      if (!fs.existsSync(indexPath)) {
-        res.status(404).json({ error: 'Index file not found' })
-        return
-      }
+      const indexPath = path.join(__dirname, '..', 'dist', 'index.html')
       const html = fs.readFileSync(indexPath, 'utf-8')
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
       res.status(200).send(html)

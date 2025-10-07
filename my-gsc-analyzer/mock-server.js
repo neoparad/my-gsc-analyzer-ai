@@ -1,49 +1,25 @@
+import express from 'express'
+import cors from 'cors'
 import { google } from 'googleapis'
-import { checkBasicAuth } from '../lib/auth.js'
+import fs from 'fs'
+import path from 'path'
 
-export default async function handler(req, res) {
-  // Basic認証チェック
-  if (!checkBasicAuth(req, res)) {
-    return
-  }
+const app = express()
+app.use(cors())
+app.use(express.json())
 
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-  if (req.method === 'OPTIONS') {
-    res.status(200).end()
-    return
-  }
-
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' })
-    return
-  }
-
+// Real Google Search Console API endpoint
+app.post('/api/analyze', async (req, res) => {
   try {
     const { site_url, past_start, past_end, current_start, current_end, url_filter, query_filter } = req.body
 
-    // 環境変数から認証情報を取得
-    let credentials
-    if (process.env.GOOGLE_CREDENTIALS) {
-      try {
-        credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS)
-      } catch (e) {
-        throw new Error('Failed to parse GOOGLE_CREDENTIALS environment variable: ' + e.message)
-      }
-    } else {
-      // ローカル開発環境用（Node.jsのfsを使用）
-      try {
-        const fs = await import('fs')
-        const path = await import('path')
-        const credentialsPath = path.join(process.cwd(), 'credentials', 'tabirai-seo-pj-58a84b33b54a.json')
-        credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-      } catch (e) {
-        throw new Error('GOOGLE_CREDENTIALS environment variable is not set and local credentials file not found')
-      }
-    }
+    // デバッグログ
+    console.log('受信したsite_url:', site_url)
+    console.log('リクエストボディ全体:', req.body)
+
+    // 認証情報を読み込み
+    const credentialsPath = path.join(process.cwd(), 'credentials', 'tabirai-seo-pj-58a84b33b54a.json')
+    const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
 
     // Google API認証
     const auth = new google.auth.GoogleAuth({
@@ -53,6 +29,8 @@ export default async function handler(req, res) {
 
     const searchconsole = google.searchconsole({ version: 'v1', auth })
 
+    console.log('認証完了、API呼び出し開始...')
+
     // より多くのデータを取得する関数
     const getAllSearchData = async (startDate, endDate, urlFilter = '') => {
       let allRows = []
@@ -60,6 +38,8 @@ export default async function handler(req, res) {
       const rowLimit = 25000
 
       while (true) {
+        console.log(`データ取得中... ${startRow} 行目から ${rowLimit} 件`)
+
         const requestBody = {
           startDate,
           endDate,
@@ -86,6 +66,7 @@ export default async function handler(req, res) {
         })
 
         const rows = response.data?.rows || []
+        console.log(`取得完了: ${rows.length} 件`)
 
         if (rows.length === 0) break
 
@@ -103,24 +84,51 @@ export default async function handler(req, res) {
     }
 
     // 過去期間のデータ取得
+    console.log('過去期間データ取得開始...')
     const pastRows = await getAllSearchData(past_start, past_end, url_filter)
+    console.log('過去期間データ取得完了:', pastRows.length, '行')
+    console.log('過去期間サンプルデータ:', JSON.stringify(pastRows[0], null, 2))
 
     // 現在期間のデータ取得
+    console.log('現在期間データ取得開始...')
     const currentRows = await getAllSearchData(current_start, current_end, url_filter)
+    console.log('現在期間データ取得完了:', currentRows.length, '行')
 
-    // データ処理
-    const pastData = { rows: pastRows }
-    const currentData = { rows: currentRows }
+    // データ処理（簡易版）
+    console.log('データ処理開始...')
 
-    const result = processSearchConsoleData(pastData, currentData, url_filter, query_filter)
+    let result
+    try {
+      // データ形式を統一
+      const pastData = { rows: pastRows }
+      const currentData = { rows: currentRows }
 
-    res.status(200).json(result)
+      result = processSearchConsoleData(pastData, currentData, url_filter, query_filter)
+      console.log('データ処理完了')
+    } catch (processError) {
+      console.error('データ処理でエラー:', processError.message)
+      throw processError
+    }
+
+    console.log('処理結果サンプル:', JSON.stringify(result.improved_queries[0], null, 2))
+    console.log('=== クリック変化の比較 ===')
+    console.log('期間ベース（Search Console形式）:', result.summary.clicks_change)
+    console.log('クエリベース（詳細分析）:', result.summary.query_clicks_change)
+    console.log('========================')
+    console.log('レスポンス送信中...')
+
+    res.json(result)
+    console.log('レスポンス送信完了！')
 
   } catch (error) {
-    console.error('API Error:', error)
+    console.error('=== API Error Details ===')
+    console.error('Error message:', error.message)
+    console.error('Error stack:', error.stack)
+    console.error('Error response:', error.response?.data)
+    console.error('========================')
     res.status(500).json({ error: error.message })
   }
-}
+})
 
 function processSearchConsoleData(pastData, currentData, urlFilter, queryFilter) {
   // 基本的なデータ処理ロジック
@@ -247,3 +255,7 @@ function getDirectoryAnalysis(improved, declined) {
   })
   return directories
 }
+
+app.listen(3001, () => {
+  console.log('Mock API server running on http://localhost:3001')
+})

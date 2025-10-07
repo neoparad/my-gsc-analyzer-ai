@@ -1,4 +1,4 @@
-import { checkBasicAuth } from './_auth.js'
+import { checkBasicAuth } from '../lib/auth.js'
 
 export default async function handler(req, res) {
   if (!checkBasicAuth(req, res)) return

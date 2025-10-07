@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { google } from 'googleapis'
-import { checkBasicAuth } from './_auth.js'
+import { checkBasicAuth } from '../lib/auth.js'
 
 // Search Consoleからデータを取得
 async function getSearchConsoleData(siteUrl, startDate, endDate) {
