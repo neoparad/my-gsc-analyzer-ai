@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { checkBasicAuth } from '../lib/auth.js'
-import puppeteer from 'puppeteer'
+import puppeteer from 'puppeteer-core'
+import chromium from '@sparticuz/chromium'
 
 export default async function handler(req, res) {
   if (!checkBasicAuth(req, res)) return
@@ -71,8 +72,10 @@ export default async function handler(req, res) {
 // JavaScript詳細分析（関数レベルのカバレッジ）
 async function analyzeJavaScriptDetailed(url, selectedItem, device = 'mobile') {
   const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless
   })
 
   try {
@@ -162,8 +165,10 @@ async function analyzeJavaScriptDetailed(url, selectedItem, device = 'mobile') {
 // CSS詳細分析（セレクタレベル）
 async function analyzeCSSDetailed(url, selectedItem, device = 'mobile') {
   const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless
   })
 
   try {
@@ -248,8 +253,10 @@ async function analyzeCSSDetailed(url, selectedItem, device = 'mobile') {
 // 画像詳細分析
 async function analyzeImagesDetailed(url, selectedItem, device = 'mobile') {
   const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless
   })
 
   try {
@@ -339,8 +346,10 @@ async function analyzeImagesDetailed(url, selectedItem, device = 'mobile') {
 // HTML/DOM詳細分析
 async function analyzeHTMLDetailed(url, selectedItem, device = 'mobile') {
   const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless
   })
 
   try {
