@@ -7,31 +7,87 @@ import AIAnalysisResult from './AIAnalysisResult'
 
 function ComparisonPage() {
   const [formData, setFormData] = useState(() => {
-    const saved = sessionStorage.getItem('comparison_formData')
-    return saved ? JSON.parse(saved) : {
-      site_url: '',
-      past_start: '',
-      past_end: '',
-      current_start: '',
-      current_end: '',
-      url_filter: '',
-      query_filter: ''
+    try {
+      const saved = sessionStorage.getItem('comparison_formData')
+      return saved ? JSON.parse(saved) : {
+        site_url: '',
+        past_start: '',
+        past_end: '',
+        current_start: '',
+        current_end: '',
+        url_filter: '',
+        query_filter: ''
+      }
+    } catch (e) {
+      console.warn('Failed to load formData from sessionStorage:', e)
+      return {
+        site_url: '',
+        past_start: '',
+        past_end: '',
+        current_start: '',
+        current_end: '',
+        url_filter: '',
+        query_filter: ''
+      }
     }
   })
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [results, setResults] = useState(() => {
-    const saved = sessionStorage.getItem('comparison_results')
-    return saved ? JSON.parse(saved) : null
+    try {
+      const saved = sessionStorage.getItem('comparison_results')
+      return saved ? JSON.parse(saved) : null
+    } catch (e) {
+      console.warn('Failed to load results from sessionStorage:', e)
+      // 破損データをクリア
+      sessionStorage.removeItem('comparison_results')
+      return null
+    }
   })
-  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('comparison_activeTab') || 'improved')
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      return sessionStorage.getItem('comparison_activeTab') || 'improved'
+    } catch (e) {
+      return 'improved'
+    }
+  })
   const [currentPage, setCurrentPage] = useState(1)
 
-  // 状態変更時にセッションストレージに保存
-  useEffect(() => { sessionStorage.setItem('comparison_formData', JSON.stringify(formData)) }, [formData])
-  useEffect(() => { if (results) sessionStorage.setItem('comparison_results', JSON.stringify(results)) }, [results])
-  useEffect(() => { sessionStorage.setItem('comparison_activeTab', activeTab) }, [activeTab])
+  // 状態変更時にセッションストレージに保存（容量制限対策）
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('comparison_formData', JSON.stringify(formData))
+    } catch (e) {
+      console.warn('Failed to save formData to sessionStorage:', e)
+    }
+  }, [formData])
+
+  useEffect(() => {
+    if (results) {
+      try {
+        sessionStorage.setItem('comparison_results', JSON.stringify(results))
+      } catch (e) {
+        // 容量オーバーの場合は保存をスキップ（画面は正常に動作）
+        console.warn('Failed to save results to sessionStorage (quota exceeded):', e)
+        // 古いデータをクリアして再試行
+        try {
+          sessionStorage.removeItem('comparison_results')
+          sessionStorage.setItem('comparison_results', JSON.stringify(results))
+        } catch (retryError) {
+          console.warn('Retry failed, results will not be cached')
+        }
+      }
+    }
+  }, [results])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('comparison_activeTab', activeTab)
+    } catch (e) {
+      console.warn('Failed to save activeTab to sessionStorage:', e)
+    }
+  }, [activeTab])
   const [itemsPerPage, setItemsPerPage] = useState(50)
   const [statusFilter, setStatusFilter] = useState('all')
 

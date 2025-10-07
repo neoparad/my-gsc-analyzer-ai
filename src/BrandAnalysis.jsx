@@ -50,6 +50,11 @@ function BrandAnalysis() {
       return
     }
 
+    // TODO: /api/brand-analysis が削除されているため、一時的に無効化
+    setError('この機能は現在準備中です。APIを実装中のため、一時的にこの機能は利用できません。')
+    return
+
+    /* 削除されたAPIへの呼び出し（一時的にコメントアウト）
     setLoading(true)
     setError('')
     setResults(null)
@@ -81,6 +86,7 @@ function BrandAnalysis() {
     } finally {
       setLoading(false)
     }
+    */
   }
 
   return (

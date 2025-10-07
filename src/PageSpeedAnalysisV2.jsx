@@ -108,6 +108,18 @@ function PageSpeedAnalysisV2() {
       // PageSpeed + Puppeteerデータを統合してAI分析
       setDeepAnalysisProgress('AIで改善項目を分析中...')
 
+      // TODO: /api/comprehensive-analysis が削除されているため、一時的に無効化
+      // 代替として基本的な改善項目を表示
+      setImprovementItems([
+        {
+          id: '1',
+          title: '総合分析機能は準備中です',
+          description: 'APIを実装中のため、一時的にこの機能は利用できません',
+          priority: 'info'
+        }
+      ])
+
+      /* 削除されたAPIへの呼び出し（一時的にコメントアウト）
       const comprehensiveResponse = await fetch('/api/comprehensive-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,6 +135,7 @@ function PageSpeedAnalysisV2() {
 
       const comprehensiveResult = await comprehensiveResponse.json()
       setImprovementItems(comprehensiveResult.improvementItems)
+      */
 
     } catch (error) {
       console.error('Deep analysis error:', error)
@@ -156,6 +169,11 @@ function PageSpeedAnalysisV2() {
       })
       const deepData = await deepResponse.json()
 
+      // TODO: /api/detailed-improvement が削除されているため、一時的に無効化
+      alert('詳細改善策生成機能は現在準備中です。APIを実装中のため、一時的にこの機能は利用できません。')
+      return
+
+      /* 削除されたAPIへの呼び出し（一時的にコメントアウト）
       for (const itemId of selectedItems) {
         const selectedItem = improvementItems.find(item => item.id === itemId)
 
@@ -181,6 +199,7 @@ function PageSpeedAnalysisV2() {
       }
 
       setDetailedPlans(plans)
+      */
 
     } catch (error) {
       console.error('Detailed plan generation error:', error)

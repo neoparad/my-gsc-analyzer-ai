@@ -25,24 +25,28 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'siteUrl and queries are required' })
     }
 
-    // 環境変数から認証情報を取得
+    // 環境変数から認証情報を取得（本番環境では必須）
     let credentials
     if (process.env.GOOGLE_CREDENTIALS) {
       try {
         credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS)
       } catch (e) {
+        console.error('Failed to parse GOOGLE_CREDENTIALS:', e)
         throw new Error('Failed to parse GOOGLE_CREDENTIALS environment variable: ' + e.message)
       }
-    } else {
-      // ローカル開発環境用
+    } else if (process.env.NODE_ENV !== 'production') {
+      // ローカル開発環境用のみ（本番環境ではエラー）
       try {
         const fs = await import('fs')
         const path = await import('path')
         const credentialsPath = path.join(process.cwd(), 'credentials', 'tabirai-seo-pj-58a84b33b54a.json')
         credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
+        console.log('Using local credentials file (development only)')
       } catch (e) {
-        throw new Error('GOOGLE_CREDENTIALS environment variable is not set and local credentials file not found')
+        throw new Error('GOOGLE_CREDENTIALS environment variable is not set and local credentials file not found: ' + e.message)
       }
+    } else {
+      throw new Error('GOOGLE_CREDENTIALS environment variable is required in production')
     }
 
     // Google Search Console API認証

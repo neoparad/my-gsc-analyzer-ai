@@ -34,7 +34,13 @@ function RankTracker() {
   useEffect(() => {
     if (queries.length > 0 && user?.username) {
       const storageKey = `rankTrackerQueries_${user.username}`
-      localStorage.setItem(storageKey, JSON.stringify(queries))
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(queries))
+      } catch (e) {
+        // 容量オーバーの場合は保存をスキップ
+        console.warn('Failed to save queries to localStorage (quota exceeded):', e)
+        setError('クエリデータが大きすぎるため、保存できませんでした。データベース移行を検討してください。')
+      }
     }
   }, [queries, user])
 
@@ -511,31 +517,17 @@ function RankTracker() {
           {/* 分析ボタン */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <button
-              onClick={async () => {
-                setAnalyzingStats(true)
-                setError('')
-                try {
-                  const response = await fetch('/api/rank-tracker-stats', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ queries })
-                  })
-                  const data = await response.json()
-                  if (!response.ok) throw new Error(data.error)
-                  setStatisticalAnalysis(data)
-                } catch (err) {
-                  setError('統計分析に失敗しました: ' + err.message)
-                } finally {
-                  setAnalyzingStats(false)
-                }
+              onClick={() => {
+                setError('この機能は現在準備中です')
               }}
-              disabled={analyzingStats}
-              className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={true}
+              className="flex items-center justify-center gap-2 bg-gray-400 text-white px-6 py-4 rounded-lg cursor-not-allowed opacity-50"
+              title="準備中：統計分析APIが未実装です"
             >
               <BarChart2 className="w-5 h-5" />
               <div className="text-left">
-                <div className="font-semibold">📊 詳細を統計分析</div>
-                <div className="text-xs opacity-90">即座に表示</div>
+                <div className="font-semibold">📊 詳細を統計分析 (準備中)</div>
+                <div className="text-xs opacity-90">APIを実装中</div>
               </div>
             </button>
 
@@ -568,6 +560,21 @@ function RankTracker() {
               </div>
             </button>
 
+            <button
+              onClick={() => {
+                setError('この機能は現在準備中です（統計分析APIが未実装）')
+              }}
+              disabled={true}
+              className="flex items-center justify-center gap-2 bg-gray-400 text-white px-6 py-4 rounded-lg cursor-not-allowed opacity-50"
+              title="準備中：統計分析APIが未実装です"
+            >
+              <Activity className="w-5 h-5" />
+              <div className="text-left">
+                <div className="font-semibold">🚀 両方を同時実行 (準備中)</div>
+                <div className="text-xs opacity-90">統計分析APIを実装中</div>
+              </div>
+            </button>
+            {/* 旧コード（APIが削除されたためコメントアウト）
             <button
               onClick={async () => {
                 setAnalyzingStats(true)
@@ -607,6 +614,7 @@ function RankTracker() {
                 <div className="text-xs opacity-90">統計 + AI分析</div>
               </div>
             </button>
+            */}
           </div>
 
           {/* ローディング表示 */}
