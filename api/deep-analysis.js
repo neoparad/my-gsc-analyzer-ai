@@ -1,4 +1,5 @@
-import puppeteer from 'puppeteer'
+import puppeteer from 'puppeteer-core'
+import chromium from '@sparticuz/chromium'
 import { checkBasicAuth } from '../lib/auth.js'
 
 export default async function handler(req, res) {
@@ -29,18 +30,12 @@ export default async function handler(req, res) {
 
     console.log(`🔍 Deep Analysis Starting: ${url} (${device})`)
 
-    // Puppeteerブラウザを起動
+    // Puppeteerブラウザを起動（Vercel対応）
     browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless
     })
 
     const page = await browser.newPage()
