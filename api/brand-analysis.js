@@ -45,12 +45,13 @@ export default async function handler(req, res) {
     }
 
     // Google API認証
-    const auth = new google.auth.GoogleAuth({
-      credentials,
+    const authClient = new google.auth.JWT({
+      email: credentials.client_email,
+      key: credentials.private_key,
       scopes: ['https://www.googleapis.com/auth/webmasters.readonly']
     })
 
-    const authClient = await auth.getClient()
+    await authClient.authorize()
     const searchconsole = google.searchconsole({ version: 'v1', auth: authClient })
 
     console.log(`📊 Fetching brand keyword data from ${startDate} to ${endDate}`)
