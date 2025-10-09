@@ -27,7 +27,9 @@ export default async function handler(req, res) {
       brandKeywords = [],
       campaigns = [],
       viewMode = 'daily',
-      enableAdsAnalysis = false
+      enableAdsAnalysis = false,
+      customerId,
+      selectedCampaignIds = []
     } = req.body
 
     if (!siteUrl || !startDate || !endDate || !brandKeywords || brandKeywords.length === 0) {
@@ -255,7 +257,7 @@ export default async function handler(req, res) {
 
     // Google Ads データ取得（オプション）
     let adsData = {}
-    if (enableAdsAnalysis) {
+    if (enableAdsAnalysis && customerId) {
       try {
         const { GoogleAdsApi } = await import('google-ads-api')
 
@@ -265,9 +267,8 @@ export default async function handler(req, res) {
           developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN
         }
         const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN
-        const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID
 
-        if (clientConfig.client_id && clientConfig.client_secret && clientConfig.developer_token && refreshToken && customerId) {
+        if (clientConfig.client_id && clientConfig.client_secret && clientConfig.developer_token && refreshToken) {
           const client = new GoogleAdsApi({
             ...clientConfig,
             refresh_token: refreshToken
@@ -277,6 +278,13 @@ export default async function handler(req, res) {
             customer_id: customerId.replace(/-/g, ''),
             refresh_token: refreshToken
           })
+
+          // キャンペーンフィルター条件
+          let campaignFilter = ''
+          if (selectedCampaignIds.length > 0) {
+            const campaignIdList = selectedCampaignIds.join(',')
+            campaignFilter = `AND campaign.id IN (${campaignIdList})`
+          }
 
           // 日次の広告データを取得
           const adQuery = `
@@ -290,8 +298,11 @@ export default async function handler(req, res) {
               AND ad_group.status = 'ENABLED'
               AND ad_group_criterion.status IN ('ENABLED', 'PAUSED')
               AND segments.date BETWEEN '${startDate}' AND '${endDate}'
+              ${campaignFilter}
             ORDER BY segments.date ASC
           `
+
+          console.log('Fetching Google Ads data with query:', adQuery)
 
           const adResponse = await customer.query(adQuery)
 

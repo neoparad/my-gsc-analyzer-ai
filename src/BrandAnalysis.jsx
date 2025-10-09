@@ -22,6 +22,13 @@ function BrandAnalysis() {
   const [enableAdsAnalysis, setEnableAdsAnalysis] = useState(() =>
     sessionStorage.getItem('brandAnalysis_enableAds') === 'true'
   )
+  const [customerId, setCustomerId] = useState(() => sessionStorage.getItem('brandAnalysis_customerId') || '')
+  const [adsCampaigns, setAdsCampaigns] = useState([])
+  const [selectedAdsCampaigns, setSelectedAdsCampaigns] = useState(() => {
+    const saved = sessionStorage.getItem('brandAnalysis_selectedAdsCampaigns')
+    return saved ? JSON.parse(saved) : []
+  })
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -39,6 +46,8 @@ function BrandAnalysis() {
   useEffect(() => { sessionStorage.setItem('brandAnalysis_campaigns', JSON.stringify(campaigns)) }, [campaigns])
   useEffect(() => { sessionStorage.setItem('brandAnalysis_viewMode', viewMode) }, [viewMode])
   useEffect(() => { sessionStorage.setItem('brandAnalysis_enableAds', enableAdsAnalysis.toString()) }, [enableAdsAnalysis])
+  useEffect(() => { sessionStorage.setItem('brandAnalysis_customerId', customerId) }, [customerId])
+  useEffect(() => { sessionStorage.setItem('brandAnalysis_selectedAdsCampaigns', JSON.stringify(selectedAdsCampaigns)) }, [selectedAdsCampaigns])
   useEffect(() => { if (results) sessionStorage.setItem('brandAnalysis_results', JSON.stringify(results)) }, [results])
 
   const addDirectory = () => setDirectories([...directories, ''])
@@ -63,6 +72,47 @@ function BrandAnalysis() {
     setCampaigns(newCampaigns)
   }
 
+  const handleFetchCampaigns = async () => {
+    if (!customerId) {
+      setError('Google Ads Customer IDを入力してください')
+      return
+    }
+
+    setLoadingCampaigns(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/fetch-campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: customerId
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'キャンペーン取得に失敗しました')
+      }
+
+      const data = await response.json()
+      setAdsCampaigns(data.campaigns)
+      setSelectedAdsCampaigns([]) // リセット
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoadingCampaigns(false)
+    }
+  }
+
+  const toggleCampaignSelection = (campaignId) => {
+    setSelectedAdsCampaigns(prev =>
+      prev.includes(campaignId)
+        ? prev.filter(id => id !== campaignId)
+        : [...prev, campaignId]
+    )
+  }
+
   const fetchData = async () => {
     if (!startDate || !endDate) {
       setError('開始日と終了日を指定してください')
@@ -85,7 +135,9 @@ function BrandAnalysis() {
           brandKeywords: brandKeywords.filter(k => k.trim() !== ''),
           campaigns: campaigns.filter(c => c.name && c.startDate && c.endDate),
           viewMode,
-          enableAdsAnalysis
+          enableAdsAnalysis,
+          customerId: enableAdsAnalysis ? customerId : undefined,
+          selectedCampaignIds: enableAdsAnalysis ? selectedAdsCampaigns : undefined
         })
       })
 
@@ -239,7 +291,7 @@ function BrandAnalysis() {
           </div>
 
           <div className="mb-6 p-4 bg-blue-50 rounded border border-blue-200">
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer mb-3">
               <input
                 type="checkbox"
                 checked={enableAdsAnalysis}
@@ -250,6 +302,49 @@ function BrandAnalysis() {
                 🎯 Google Ads データも分析に含める（広告の影響を可視化）
               </span>
             </label>
+
+            {enableAdsAnalysis && (
+              <div className="mt-3 space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customerId}
+                    onChange={(e) => setCustomerId(e.target.value)}
+                    placeholder="Google Ads Customer ID (例: 123-456-7890)"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={handleFetchCampaigns}
+                    disabled={loadingCampaigns || !customerId}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"
+                  >
+                    {loadingCampaigns ? '取得中...' : 'キャンペーン取得'}
+                  </button>
+                </div>
+
+                {adsCampaigns.length > 0 && (
+                  <div className="bg-white rounded border border-gray-300 p-3 max-h-48 overflow-y-auto">
+                    <div className="text-xs font-medium text-gray-600 mb-2">
+                      分析対象キャンペーンを選択 ({selectedAdsCampaigns.length}件選択中)
+                    </div>
+                    {adsCampaigns.map(campaign => (
+                      <label key={campaign.id} className="flex items-center gap-2 py-1 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedAdsCampaigns.includes(campaign.id)}
+                          onChange={() => toggleCampaignSelection(campaign.id)}
+                          className="w-4 h-4 text-blue-600"
+                        />
+                        <span className="text-xs text-gray-700">{campaign.name}</span>
+                        <span className="text-xs text-gray-400 ml-auto">
+                          {campaign.status}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="mb-6">
