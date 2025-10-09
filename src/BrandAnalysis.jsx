@@ -14,6 +14,14 @@ function BrandAnalysis() {
     const saved = sessionStorage.getItem('brandAnalysis_brandKeywords')
     return saved ? JSON.parse(saved) : ['tabirai', 'たびらい', 'タビライ']
   })
+  const [campaigns, setCampaigns] = useState(() => {
+    const saved = sessionStorage.getItem('brandAnalysis_campaigns')
+    return saved ? JSON.parse(saved) : []
+  })
+  const [viewMode, setViewMode] = useState(() => sessionStorage.getItem('brandAnalysis_viewMode') || 'daily')
+  const [enableAdsAnalysis, setEnableAdsAnalysis] = useState(() =>
+    sessionStorage.getItem('brandAnalysis_enableAds') === 'true'
+  )
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -28,6 +36,9 @@ function BrandAnalysis() {
   useEffect(() => { sessionStorage.setItem('brandAnalysis_endDate', endDate) }, [endDate])
   useEffect(() => { sessionStorage.setItem('brandAnalysis_directories', JSON.stringify(directories)) }, [directories])
   useEffect(() => { sessionStorage.setItem('brandAnalysis_brandKeywords', JSON.stringify(brandKeywords)) }, [brandKeywords])
+  useEffect(() => { sessionStorage.setItem('brandAnalysis_campaigns', JSON.stringify(campaigns)) }, [campaigns])
+  useEffect(() => { sessionStorage.setItem('brandAnalysis_viewMode', viewMode) }, [viewMode])
+  useEffect(() => { sessionStorage.setItem('brandAnalysis_enableAds', enableAdsAnalysis.toString()) }, [enableAdsAnalysis])
   useEffect(() => { if (results) sessionStorage.setItem('brandAnalysis_results', JSON.stringify(results)) }, [results])
 
   const addDirectory = () => setDirectories([...directories, ''])
@@ -42,6 +53,14 @@ function BrandAnalysis() {
     const newKeywords = [...brandKeywords]
     newKeywords[index] = value
     setBrandKeywords(newKeywords)
+  }
+
+  const addCampaign = () => setCampaigns([...campaigns, { name: '', startDate: '', endDate: '' }])
+  const removeCampaign = (index) => setCampaigns(campaigns.filter((_, i) => i !== index))
+  const updateCampaign = (index, field, value) => {
+    const newCampaigns = [...campaigns]
+    newCampaigns[index][field] = value
+    setCampaigns(newCampaigns)
   }
 
   const fetchData = async () => {
@@ -63,7 +82,10 @@ function BrandAnalysis() {
           startDate,
           endDate,
           directories: directories.filter(d => d.trim() !== ''),
-          brandKeywords: brandKeywords.filter(k => k.trim() !== '')
+          brandKeywords: brandKeywords.filter(k => k.trim() !== ''),
+          campaigns: campaigns.filter(c => c.name && c.startDate && c.endDate),
+          viewMode,
+          enableAdsAnalysis
         })
       })
 
@@ -172,6 +194,90 @@ function BrandAnalysis() {
             </div>
           </div>
 
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">📅 キャンペーン期間（任意）</label>
+              <button
+                onClick={addCampaign}
+                className="flex items-center gap-1 px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+              >
+                <Plus className="w-4 h-4" />
+                追加
+              </button>
+            </div>
+            <div className="space-y-2">
+              {campaigns.map((campaign, index) => (
+                <div key={index} className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={campaign.name}
+                    onChange={(e) => updateCampaign(index, 'name', e.target.value)}
+                    placeholder="キャンペーン名"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="date"
+                    value={campaign.startDate}
+                    onChange={(e) => updateCampaign(index, 'startDate', e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="date"
+                    value={campaign.endDate}
+                    onChange={(e) => updateCampaign(index, 'endDate', e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={() => removeCampaign(index)}
+                    className="p-2 text-red-600 hover:bg-red-100 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mb-6 p-4 bg-blue-50 rounded border border-blue-200">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableAdsAnalysis}
+                onChange={(e) => setEnableAdsAnalysis(e.target.checked)}
+                className="w-4 h-4 text-blue-600"
+              />
+              <span className="text-sm font-medium text-gray-700">
+                🎯 Google Ads データも分析に含める（広告の影響を可視化）
+              </span>
+            </label>
+          </div>
+
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">📊 表示モード</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  value="daily"
+                  checked={viewMode === 'daily'}
+                  onChange={(e) => setViewMode(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm">日別</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  value="monthly"
+                  checked={viewMode === 'monthly'}
+                  onChange={(e) => setViewMode(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm">月別</span>
+              </label>
+            </div>
+          </div>
+
           <button
             onClick={fetchData}
             disabled={loading}
@@ -191,6 +297,54 @@ function BrandAnalysis() {
         {/* Results Display */}
         {results && results.statistics && (
           <>
+            {/* Trend Chart */}
+            {results.trendData && results.trendData.length > 0 && (
+              <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 className="text-xl font-bold text-gray-800 mb-4">📈 ブランドキーワードアクセス推移</h2>
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={results.trendData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="period" />
+                    <YAxis yAxisId="left" />
+                    <YAxis yAxisId="right" orientation="right" />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="seoClicks"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      name="SEOクリック数"
+                      dot={{ r: 4 }}
+                    />
+                    {results.trendData[0].adClicks !== undefined && (
+                      <Line
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="adClicks"
+                        stroke="#ef4444"
+                        strokeWidth={2}
+                        name="広告クリック数"
+                        dot={{ r: 4 }}
+                      />
+                    )}
+                    {results.trendData[0].campaignActive !== undefined && (
+                      <Line
+                        yAxisId="right"
+                        type="stepAfter"
+                        dataKey="campaignActive"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        name="キャンペーン実施中"
+                        dot={false}
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
             {/* Summary */}
             <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
               <h2 className="text-xl font-bold text-gray-800 mb-4">📊 分析結果サマリー</h2>
@@ -328,6 +482,47 @@ function BrandAnalysis() {
                 </div>
               </div>
             </div>
+
+            {/* Change Factors Analysis */}
+            {results.changeFactors && (
+              <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">🔍 変化要因分析</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 border border-gray-200 rounded">
+                    <div className="text-sm font-medium text-gray-600 mb-2">📈 トレンド</div>
+                    <p className="text-gray-800">{results.changeFactors.trend.description}</p>
+                  </div>
+                  <div className="p-4 border border-gray-200 rounded">
+                    <div className="text-sm font-medium text-gray-600 mb-2">🌊 季節性</div>
+                    <p className="text-gray-800">{results.changeFactors.seasonality.description}</p>
+                  </div>
+                  <div className="p-4 border border-gray-200 rounded">
+                    <div className="text-sm font-medium text-gray-600 mb-2">📅 曜日効果</div>
+                    <p className="text-gray-800">{results.changeFactors.weekdayEffect.description}</p>
+                  </div>
+                  {results.changeFactors.adsImpact && (
+                    <div className={`p-4 border rounded ${
+                      results.changeFactors.adsImpact.hasImpact
+                        ? 'border-red-300 bg-red-50'
+                        : 'border-gray-200'
+                    }`}>
+                      <div className="text-sm font-medium text-gray-600 mb-2">🎯 広告影響</div>
+                      <p className="text-gray-800">{results.changeFactors.adsImpact.description}</p>
+                    </div>
+                  )}
+                  {results.changeFactors.campaignImpact && (
+                    <div className={`p-4 border rounded ${
+                      results.changeFactors.campaignImpact.hasImpact
+                        ? 'border-green-300 bg-green-50'
+                        : 'border-gray-200'
+                    }`}>
+                      <div className="text-sm font-medium text-gray-600 mb-2">📅 キャンペーン影響</div>
+                      <p className="text-gray-800">{results.changeFactors.campaignImpact.description}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* AI Comment */}
             {results.aiComment && (

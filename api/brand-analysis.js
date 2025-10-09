@@ -19,7 +19,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { siteUrl, startDate, endDate, directories = [], brandKeywords = [] } = req.body
+    const {
+      siteUrl,
+      startDate,
+      endDate,
+      directories = [],
+      brandKeywords = [],
+      campaigns = [],
+      viewMode = 'daily',
+      enableAdsAnalysis = false
+    } = req.body
 
     if (!siteUrl || !startDate || !endDate || !brandKeywords || brandKeywords.length === 0) {
       return res.status(400).json({ error: '必要なパラメータが不足しています' })
@@ -244,7 +253,236 @@ export default async function handler(req, res) {
       }
     }
 
-    res.status(200).json({ statistics })
+    // Google Ads データ取得（オプション）
+    let adsData = {}
+    if (enableAdsAnalysis) {
+      try {
+        const { GoogleAdsApi } = await import('google-ads-api')
+
+        const clientConfig = {
+          client_id: process.env.GOOGLE_ADS_CLIENT_ID,
+          client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET,
+          developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN
+        }
+        const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN
+        const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID
+
+        if (clientConfig.client_id && clientConfig.client_secret && clientConfig.developer_token && refreshToken && customerId) {
+          const client = new GoogleAdsApi({
+            ...clientConfig,
+            refresh_token: refreshToken
+          })
+
+          const customer = client.Customer({
+            customer_id: customerId.replace(/-/g, ''),
+            refresh_token: refreshToken
+          })
+
+          // 日次の広告データを取得
+          const adQuery = `
+            SELECT
+              segments.date,
+              ad_group_criterion.keyword.text,
+              metrics.clicks
+            FROM keyword_view
+            WHERE
+              campaign.status = 'ENABLED'
+              AND ad_group.status = 'ENABLED'
+              AND ad_group_criterion.status IN ('ENABLED', 'PAUSED')
+              AND segments.date BETWEEN '${startDate}' AND '${endDate}'
+            ORDER BY segments.date ASC
+          `
+
+          const adResponse = await customer.query(adQuery)
+
+          // ブランドキーワードを含む広告のクリック数を集計
+          adResponse.forEach(row => {
+            const keyword = (row.ad_group_criterion?.keyword?.text || '').toLowerCase()
+            const date = row.segments.date
+            const clicks = parseInt(row.metrics.clicks) || 0
+
+            const isBrandQuery = brandKeywords.some(bk =>
+              keyword.includes(bk.toLowerCase())
+            )
+
+            if (isBrandQuery) {
+              if (!adsData[date]) {
+                adsData[date] = 0
+              }
+              adsData[date] += clicks
+            }
+          })
+
+          console.log(`  Got ad data for ${Object.keys(adsData).length} days`)
+        }
+      } catch (adError) {
+        console.error('Google Ads API Error (non-fatal):', adError.message)
+        // 広告データ取得失敗は致命的エラーではないので続行
+      }
+    }
+
+    // 推移データの生成
+    const trendData = []
+
+    if (viewMode === 'daily') {
+      // 日別データ
+      dates.forEach((date, index) => {
+        const dataPoint = {
+          period: date,
+          seoClicks: dailyData[date] || 0
+        }
+
+        if (enableAdsAnalysis && Object.keys(adsData).length > 0) {
+          dataPoint.adClicks = adsData[date] || 0
+        }
+
+        // キャンペーン実施中かチェック
+        if (campaigns.length > 0) {
+          const isInCampaign = campaigns.some(c =>
+            date >= c.startDate && date <= c.endDate
+          )
+          dataPoint.campaignActive = isInCampaign ? 1 : 0
+        }
+
+        trendData.push(dataPoint)
+      })
+    } else {
+      // 月別データ
+      const monthlyTrend = {}
+      const monthlyAds = {}
+      const monthlyCampaigns = new Set()
+
+      dates.forEach((date, index) => {
+        const month = date.substring(0, 7)
+        if (!monthlyTrend[month]) {
+          monthlyTrend[month] = 0
+        }
+        monthlyTrend[month] += dailyData[date] || 0
+
+        if (enableAdsAnalysis && adsData[date]) {
+          if (!monthlyAds[month]) {
+            monthlyAds[month] = 0
+          }
+          monthlyAds[month] += adsData[date]
+        }
+
+        if (campaigns.length > 0) {
+          const isInCampaign = campaigns.some(c =>
+            date >= c.startDate && date <= c.endDate
+          )
+          if (isInCampaign) {
+            monthlyCampaigns.add(month)
+          }
+        }
+      })
+
+      Object.keys(monthlyTrend).sort().forEach(month => {
+        const dataPoint = {
+          period: month,
+          seoClicks: monthlyTrend[month]
+        }
+
+        if (enableAdsAnalysis) {
+          dataPoint.adClicks = monthlyAds[month] || 0
+        }
+
+        if (campaigns.length > 0) {
+          dataPoint.campaignActive = monthlyCampaigns.has(month) ? 1 : 0
+        }
+
+        trendData.push(dataPoint)
+      })
+    }
+
+    // 変化要因分析
+    const changeFactors = {
+      trend: {
+        type: direction,
+        strength: Math.abs(dailyChange),
+        description: `${direction === '上昇' ? '+' : direction === '下降' ? '-' : ''}${Math.abs(dailyChange).toFixed(1)}クリック/日の${direction}トレンド`
+      },
+      seasonality: {
+        hasSeasonality: ratio > 1.5,
+        peakMonth: peakMonth.month,
+        lowMonth: lowMonth.month,
+        ratio: ratio.toFixed(1),
+        description: ratio > 1.5
+          ? `季節性あり（${peakMonth.month}がピーク、${lowMonth.month}が低調）`
+          : '季節性は弱い'
+      },
+      weekdayEffect: {
+        hasWeekdayEffect: Math.abs(weekendEffect) > 10,
+        bestDay: bestDow.name,
+        worstDay: worstDow.name,
+        weekendEffect: `${weekendEffect > 0 ? '+' : ''}${weekendEffect}%`,
+        description: Math.abs(weekendEffect) > 10
+          ? `曜日効果あり（週末は平日比${weekendEffect > 0 ? '+' : ''}${weekendEffect}%）`
+          : '曜日による差は小さい'
+      }
+    }
+
+    if (enableAdsAnalysis && Object.keys(adsData).length > 0) {
+      // 広告影響分析
+      const seoClicksArray = trendData.map(d => d.seoClicks)
+      const adClicksArray = trendData.map(d => d.adClicks || 0)
+
+      // 相関係数を計算
+      const seoMean = seoClicksArray.reduce((sum, val) => sum + val, 0) / seoClicksArray.length
+      const adMean = adClicksArray.reduce((sum, val) => sum + val, 0) / adClicksArray.length
+
+      let covariance = 0
+      let seoVariance = 0
+      let adVariance = 0
+
+      for (let i = 0; i < seoClicksArray.length; i++) {
+        const seoDiff = seoClicksArray[i] - seoMean
+        const adDiff = adClicksArray[i] - adMean
+        covariance += seoDiff * adDiff
+        seoVariance += seoDiff * seoDiff
+        adVariance += adDiff * adDiff
+      }
+
+      const correlation = covariance / Math.sqrt(seoVariance * adVariance)
+
+      changeFactors.adsImpact = {
+        hasImpact: correlation < -0.3,
+        correlation: correlation.toFixed(2),
+        description: correlation < -0.3
+          ? `広告がSEOを圧迫している可能性あり（相関係数: ${correlation.toFixed(2)}）`
+          : correlation > 0.3
+          ? `広告とSEOが相乗効果を発揮（相関係数: ${correlation.toFixed(2)}）`
+          : '広告の影響は限定的'
+      }
+    }
+
+    if (campaigns.length > 0) {
+      // キャンペーン影響分析
+      const campaignPeriods = trendData.filter(d => d.campaignActive === 1)
+      const nonCampaignPeriods = trendData.filter(d => d.campaignActive === 0)
+
+      if (campaignPeriods.length > 0 && nonCampaignPeriods.length > 0) {
+        const campaignAvg = campaignPeriods.reduce((sum, d) => sum + d.seoClicks, 0) / campaignPeriods.length
+        const nonCampaignAvg = nonCampaignPeriods.reduce((sum, d) => sum + d.seoClicks, 0) / nonCampaignPeriods.length
+        const campaignEffect = ((campaignAvg - nonCampaignAvg) / nonCampaignAvg) * 100
+
+        changeFactors.campaignImpact = {
+          hasImpact: Math.abs(campaignEffect) > 10,
+          effect: campaignEffect.toFixed(1),
+          description: Math.abs(campaignEffect) > 10
+            ? `キャンペーン実施時は通常比${campaignEffect > 0 ? '+' : ''}${campaignEffect.toFixed(1)}%`
+            : 'キャンペーンの影響は限定的'
+        }
+      }
+    }
+
+    res.status(200).json({
+      statistics,
+      trendData,
+      changeFactors,
+      campaigns,
+      viewMode,
+      hasAdsData: enableAdsAnalysis && Object.keys(adsData).length > 0
+    })
 
   } catch (error) {
     console.error('Brand Analysis API Error:', error)
