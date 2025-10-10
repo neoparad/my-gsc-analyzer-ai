@@ -1,9 +1,7 @@
 import { checkBasicAuth } from '../../lib/auth.js'
 import { google } from 'googleapis'
 import { v4 as uuidv4 } from 'uuid'
-
-// メモリ内ジョブストア（本番環境ではRedis/DB使用推奨）
-const jobs = new Map()
+import { getSupabaseClient } from '../../lib/supabase.js'
 
 export default async function handler(req, res) {
   if (!checkBasicAuth(req, res)) return
@@ -34,28 +32,38 @@ export default async function handler(req, res) {
     }
 
     const jobId = uuidv4()
+    const supabase = getSupabaseClient()
 
-    // ジョブ初期化
-    jobs.set(jobId, {
-      jobId,
-      status: 'running',
-      totalUrls: urls.length,
-      completedUrls: 0,
-      results: [],
-      startedAt: new Date(),
-      completedAt: null
-    })
+    // ジョブ初期化（Supabaseに保存）
+    const { error: insertError } = await supabase
+      .from('index_inspection_jobs')
+      .insert({
+        job_id: jobId,
+        status: 'running',
+        total_urls: urls.length,
+        completed_urls: 0,
+        results: [],
+        started_at: new Date().toISOString()
+      })
+
+    if (insertError) {
+      throw new Error('ジョブの作成に失敗しました: ' + insertError.message)
+    }
 
     console.log(`[Job ${jobId}] Started with ${urls.length} URLs`)
 
     // バックグラウンド処理開始（非同期）
     processUrls(jobId, urls).catch(err => {
       console.error(`[Job ${jobId}] Error:`, err)
-      const job = jobs.get(jobId)
-      if (job) {
-        job.status = 'failed'
-        job.error = err.message
-      }
+      // エラー時はSupabaseを更新
+      supabase
+        .from('index_inspection_jobs')
+        .update({
+          status: 'failed',
+          error: err.message
+        })
+        .eq('job_id', jobId)
+        .then(() => console.log(`[Job ${jobId}] Marked as failed`))
     })
 
     res.status(200).json({
@@ -74,13 +82,12 @@ export default async function handler(req, res) {
 }
 
 async function processUrls(jobId, urls) {
-  const job = jobs.get(jobId)
-  if (!job) return
+  const supabase = getSupabaseClient()
 
   try {
     // Google Search Console API認証
     const auth = new google.auth.GoogleAuth({
-      credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || '{}'),
+      credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}'),
       scopes: ['https://www.googleapis.com/auth/webmasters.readonly']
     })
 
@@ -94,6 +101,7 @@ async function processUrls(jobId, urls) {
     // バッチ処理（20 req/秒の制限を考慮）
     const batchSize = 20
     const delayMs = 1000 // 1秒あたり20リクエスト
+    const allResults = []
 
     for (let i = 0; i < urls.length; i += batchSize) {
       const batch = urls.slice(i, i + batchSize)
@@ -102,10 +110,18 @@ async function processUrls(jobId, urls) {
         batch.map(url => inspectUrl(searchconsole, siteUrl, url))
       )
 
-      job.results.push(...batchResults)
-      job.completedUrls = job.results.length
+      allResults.push(...batchResults)
 
-      console.log(`[Job ${jobId}] Progress: ${job.completedUrls}/${job.totalUrls}`)
+      // Supabaseに進捗を更新
+      await supabase
+        .from('index_inspection_jobs')
+        .update({
+          completed_urls: allResults.length,
+          results: allResults
+        })
+        .eq('job_id', jobId)
+
+      console.log(`[Job ${jobId}] Progress: ${allResults.length}/${urls.length}`)
 
       // レート制限対策
       if (i + batchSize < urls.length) {
@@ -113,15 +129,29 @@ async function processUrls(jobId, urls) {
       }
     }
 
-    job.status = 'completed'
-    job.completedAt = new Date()
+    // ジョブ完了
+    await supabase
+      .from('index_inspection_jobs')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      })
+      .eq('job_id', jobId)
 
     console.log(`[Job ${jobId}] Completed successfully`)
 
   } catch (error) {
     console.error(`[Job ${jobId}] Processing error:`, error)
-    job.status = 'failed'
-    job.error = error.message
+
+    // エラー情報を保存
+    await supabase
+      .from('index_inspection_jobs')
+      .update({
+        status: 'failed',
+        error: error.message
+      })
+      .eq('job_id', jobId)
+
     throw error
   }
 }
@@ -158,6 +188,3 @@ function extractSiteUrl(url) {
     return null
   }
 }
-
-// ジョブデータへのアクセスをエクスポート（他のAPIで使用）
-export { jobs }

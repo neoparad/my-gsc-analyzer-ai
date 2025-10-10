@@ -1,5 +1,5 @@
 import { checkBasicAuth } from '../../../lib/auth.js'
-import { jobs } from '../start.js'
+import { getSupabaseClient } from '../../../lib/supabase.js'
 
 export default async function handler(req, res) {
   if (!checkBasicAuth(req, res)) return
@@ -25,9 +25,16 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'jobIdは必須です' })
     }
 
-    const job = jobs.get(jobId)
+    const supabase = getSupabaseClient()
 
-    if (!job) {
+    // Supabaseからジョブ情報を取得
+    const { data: job, error } = await supabase
+      .from('index_inspection_jobs')
+      .select('*')
+      .eq('job_id', jobId)
+      .single()
+
+    if (error || !job) {
       return res.status(404).json({ error: 'ジョブが見つかりません' })
     }
 

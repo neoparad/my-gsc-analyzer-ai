@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "supabase-db": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@bytebase/dbhub",
+        "--dsn",
+        "postgresql://postgres:1hQmb2frdBEkKfwP@db.ekzeytltaiiknvlbqhbn.supabase.co:5432/postgres?sslmode=require",
+        "--readonly"
+      ],
+      "disabled": false
+    }
+  }
+}
