@@ -39,7 +39,7 @@ async function getSearchConsoleData(siteUrl, startDate, endDate) {
 
 // ユーザーの質問からSearch Console APIパラメータを判断
 async function analyzeQuestion(message, genAI) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })
 
   const prompt = `ユーザーの質問を分析して、以下のJSON形式で回答してください:
 {
@@ -95,7 +95,7 @@ export default async function handler(req, res) {
 
     // Gemini AI初期化
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })
 
     // 質問を分析
     const analysis = await analyzeQuestion(message, genAI)

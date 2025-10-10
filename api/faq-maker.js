@@ -195,7 +195,7 @@ async function fetchBraveFAQ(keyword) {
 // Gemini AIで質問を分析・優先順位付け・追加生成
 async function analyzeAndPrioritizeQuestions(keyword, serpsQuestions, braveQuestions) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })
 
   const allQuestions = [
     ...serpsQuestions.map(q => q.question),
@@ -209,13 +209,16 @@ async function analyzeAndPrioritizeQuestions(keyword, serpsQuestions, braveQuest
 ${keyword}
 
 【既存の関連質問】
-${allQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+${allQuestions.length > 0 ? allQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : 'なし'}
 
 以下のタスクを実行してください：
 
 1. 既存の質問を分析し、重複を統合
 2. 検索需要が高く、ユーザーにとって価値のある質問を優先
-3. 不足している重要な質問を追加生成
+3. 既存の質問が10個未満の場合：
+   - このキーワードに関連する検索キーワード（サジェストキーワード）を推測
+   - 検索窓にカーソルを合わせると表示される再検索キーワードから検索意図を推測
+   - それらから導き出される重要な質問を追加生成し、10個に到達させる
 4. 最終的に需要の高い順に10個の質問を出力
 
 【出力形式】
@@ -233,16 +236,30 @@ ${allQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
     const result = await model.generateContent(prompt)
     const response = result.response.text()
 
+    console.log(`[FAQ] Question analysis response for "${keyword}":`, response.substring(0, 300))
+
     // JSONを抽出
     const jsonMatch = response.match(/\[[\s\S]*\]/)
     if (jsonMatch) {
-      const questions = JSON.parse(jsonMatch[0])
-      return questions.slice(0, 10) // 最大10個
+      try {
+        const questions = JSON.parse(jsonMatch[0])
+        console.log(`[FAQ] Parsed ${questions.length} questions for "${keyword}"`)
+        return questions.slice(0, 10) // 最大10個
+      } catch (parseError) {
+        console.error(`[FAQ] JSON parse error for questions:`, parseError.message)
+      }
+    } else {
+      console.warn(`[FAQ] No JSON array found in response for "${keyword}"`)
     }
 
-    throw new Error('Failed to parse questions from AI response')
+    // フォールバック：既存の質問から上位10個を返す
+    console.log(`[FAQ] Using fallback: ${allQuestions.length} existing questions`)
+    return allQuestions.slice(0, 10)
   } catch (error) {
-    console.error('Question analysis error:', error)
+    console.error(`[FAQ] Question analysis error for "${keyword}":`, {
+      error: error.message,
+      stack: error.stack
+    })
     // フォールバック：既存の質問から上位10個を返す
     return allQuestions.slice(0, 10)
   }
@@ -252,7 +269,7 @@ ${allQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 async function generateAnswers(keyword, questions) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
   const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-pro',
+    model: 'gemini-2.5-flash-lite',
     generationConfig: {
       temperature: 0.8,  // より創造的で自然な表現
       topP: 0.95,
@@ -263,78 +280,80 @@ async function generateAnswers(keyword, questions) {
   const results = []
 
   for (const question of questions) {
-    const prompt = `
-あなたは経験豊富なSEOコンテンツライターです。ユーザーが実際に知りたい情報を、親しみやすく自然な言葉で伝えてください。
+    const prompt = `あなたは経験豊富なSEOコンテンツライターです。以下の質問に対して、PREP法（結論→理由→具体例→結論）の構造で、150～300文字以内で自然な日本語で回答してください。
 
-【メインキーワード】
-${keyword}
+【キーワード】${keyword}
+【質問】${question}
 
-【質問】
-${question}
+【回答の注意点】
+- 専門用語を避け、話しかけるような親しみやすい表現
+- ユーザーが具体的に行動できる情報を含める
+- 結論を最初と最後に述べる
 
-【タスク】
-1. ユーザーの検索意図、感情、カスタマージャーニーを深く理解する（出力不要）
-2. PREP法（結論→理由→具体例→結論）の構造で、100～250文字以内で回答
-3. 以下の点に注意：
-   - 専門用語は避け、誰でも理解できる平易な言葉を使う
-   - 硬い表現ではなく、話しかけるような自然な日本語
-   - ユーザーが実際に行動できる具体的な情報を含める
-   - 必要に応じて表形式で比較情報を提供（必須ではない）
+【表現の制約】
+- 「〇〇んです」「〇〇んですよ」などの「ん」を含む語尾は使わない
+- 「〇〇ですよ！」「〇〇ですね！」などの「よ！」「ね！」は使わない
+- 感嘆符「！」は一切使わない
+- 丁寧で落ち着いた文体で記述する
 
-【出力形式】
-以下のJSON形式のみを出力：
-{
-  "answer_text": "自然で読みやすい回答文章",
-  "has_table": true/false,
-  "table_data": {
-    "headers": ["列1", "列2"],
-    "rows": [["データ1", "データ2"]]
-  }
-}
-
-【良い例】
-「結論として〜です。なぜなら〜だからです。例えば〜の場合、〜となります。そのため〜がおすすめです。」
-
-【悪い例】
-「〜である。〜となる。〜が挙げられる。」（硬い・機械的な表現）
-`
+回答のみを出力してください（JSON不要）：`
 
     try {
       const result = await model.generateContent(prompt)
-      const response = result.response.text()
+      const response = result.response.text().trim()
 
-      // JSONを抽出
-      const jsonMatch = response.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const answerData = JSON.parse(jsonMatch[0])
+      console.log(`[FAQ] Response for "${question}": ${response.substring(0, 100)}...`)
 
+      // レスポンスをクリーンアップ（マークダウン記法を削除）
+      const cleanedResponse = response
+        .replace(/```json\s*|\s*```/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/^["']|["']$/g, '')
+        .trim()
+
+      if (cleanedResponse && cleanedResponse.length > 10) {
         results.push({
           question,
-          answer: answerData.answer_text,
-          has_table: answerData.has_table || false,
-          table: answerData.table_data || null
-        })
-      } else {
-        // フォールバック
-        results.push({
-          question,
-          answer: '回答を生成できませんでした',
+          answer: cleanedResponse,
           has_table: false,
           table: null
         })
+      } else {
+        throw new Error('Empty or invalid response')
       }
 
       // レート制限対策
       await new Promise(resolve => setTimeout(resolve, 1000))
 
     } catch (error) {
-      console.error(`Answer generation error for "${question}":`, error)
-      results.push({
-        question,
-        answer: 'エラーが発生しました',
-        has_table: false,
-        table: null
+      console.error(`[FAQ] Answer generation error for "${question}":`, {
+        error: error.message,
+        stack: error.stack?.substring(0, 200)
       })
+
+      // リトライロジック（1回のみ）
+      try {
+        console.log(`[FAQ] Retrying for "${question}"...`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+
+        const retryResult = await model.generateContent(prompt)
+        const retryResponse = retryResult.response.text().trim()
+
+        results.push({
+          question,
+          answer: retryResponse || `回答生成に失敗しました`,
+          has_table: false,
+          table: null
+        })
+      } catch (retryError) {
+        console.error(`[FAQ] Retry failed for "${question}":`, retryError.message)
+        results.push({
+          question,
+          answer: `回答生成に失敗しました。もう一度お試しください。`,
+          has_table: false,
+          table: null
+        })
+      }
     }
   }
 

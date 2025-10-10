@@ -10,11 +10,14 @@ import detailedAnalysisHandler from './api/detailed-analysis.js'
 import aiAnalysisHandler from './api/ai-analysis.js'
 import rankTrackerHandler from './api/rank-tracker.js'
 import rankTrackerAiHandler from './api/rank-tracker-ai.js'
+import rankTrackerQueriesHandler from './api/rank-tracker-queries.js'
 import directoryAnalysisHandler from './api/directory-analysis.js'
 import queryRankShareHandler from './api/query-rank-share.js'
 import analyzeCompetitiveHandler from './api/analyze-competitive.js'
 import deepAnalysisHandler from './api/deep-analysis.js'
 import adsCannibalizationHandler from './api/ads-cannibalization.js'
+import fetchCampaignsHandler from './api/fetch-campaigns.js'
+import faqMakerHandler from './api/faq-maker.js'
 import loginHandler from './api/login.js'
 
 dotenv.config()
@@ -47,11 +50,16 @@ app.post('/api/detailed-analysis', wrapHandler(detailedAnalysisHandler))
 app.post('/api/ai-analysis', wrapHandler(aiAnalysisHandler))
 app.post('/api/rank-tracker', wrapHandler(rankTrackerHandler))
 app.post('/api/rank-tracker-ai', wrapHandler(rankTrackerAiHandler))
+app.get('/api/rank-tracker-queries', wrapHandler(rankTrackerQueriesHandler))
+app.post('/api/rank-tracker-queries', wrapHandler(rankTrackerQueriesHandler))
+app.delete('/api/rank-tracker-queries', wrapHandler(rankTrackerQueriesHandler))
 app.post('/api/directory-analysis', wrapHandler(directoryAnalysisHandler))
 app.post('/api/query-rank-share', wrapHandler(queryRankShareHandler))
 app.post('/api/analyze-competitive', wrapHandler(analyzeCompetitiveHandler))
 app.post('/api/deep-analysis', wrapHandler(deepAnalysisHandler))
 app.post('/api/ads-cannibalization', wrapHandler(adsCannibalizationHandler))
+app.post('/api/fetch-campaigns', wrapHandler(fetchCampaignsHandler))
+app.post('/api/faq-maker', wrapHandler(faqMakerHandler))
 
 // Health check
 app.get('/api/health', (req, res) => {

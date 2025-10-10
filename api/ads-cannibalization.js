@@ -1,4 +1,5 @@
 import { google } from 'googleapis'
+import { GoogleAdsApi } from 'google-ads-api'
 import { checkBasicAuth } from '../lib/auth.js'
 
 export default async function handler(req, res) {
@@ -23,7 +24,9 @@ export default async function handler(req, res) {
       site_url,
       start_date,
       end_date,
-      ads_data, // フロントエンドからGoogle Adsデータを受け取る（CSV等）
+      customer_id,
+      campaign_ids,
+      query_filter,
       filters
     } = req.body
 
@@ -98,11 +101,93 @@ export default async function handler(req, res) {
       }
     })
 
+    // Google Ads APIからデータ取得
+    let adsData = []
+
+    try {
+      const clientConfig = {
+        client_id: process.env.GOOGLE_ADS_CLIENT_ID,
+        client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET,
+        developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN
+      }
+
+      const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN
+
+      if (clientConfig.client_id && clientConfig.client_secret && clientConfig.developer_token && refreshToken) {
+        const client = new GoogleAdsApi({
+          ...clientConfig,
+          refresh_token: refreshToken
+        })
+
+        const customerId = customer_id || process.env.GOOGLE_ADS_CUSTOMER_ID
+
+        if (customerId) {
+          const customer = client.Customer({
+            customer_id: customerId.replace(/-/g, ''),
+            refresh_token: refreshToken
+          })
+
+          const dateCondition = start_date && end_date
+            ? `AND segments.date BETWEEN '${start_date}' AND '${end_date}'`
+            : ''
+
+          // キャンペーンフィルター
+          const campaignCondition = campaign_ids && campaign_ids.length > 0
+            ? `AND campaign.id IN (${campaign_ids.join(',')})`
+            : ''
+
+          const query = `
+            SELECT
+              ad_group_criterion.keyword.text,
+              metrics.impressions,
+              metrics.clicks,
+              metrics.cost_micros,
+              metrics.conversions,
+              metrics.average_cpc
+            FROM keyword_view
+            WHERE
+              campaign.status = 'ENABLED'
+              AND ad_group.status = 'ENABLED'
+              AND ad_group_criterion.status IN ('ENABLED', 'PAUSED')
+              ${dateCondition}
+              ${campaignCondition}
+            ORDER BY metrics.cost_micros DESC
+            LIMIT 10000
+          `
+
+          const response = await customer.query(query)
+
+          adsData = response.map(row => ({
+            query: row.ad_group_criterion.keyword.text.toLowerCase().trim(),
+            ad_clicks: parseInt(row.metrics.clicks) || 0,
+            ad_impressions: parseInt(row.metrics.impressions) || 0,
+            cost: (parseInt(row.metrics.cost_micros) || 0) / 1000000,
+            cpc: (parseInt(row.metrics.average_cpc) || 0) / 1000000,
+            conversions: parseFloat(row.metrics.conversions) || 0
+          }))
+
+          // クエリフィルター適用
+          if (query_filter && query_filter.trim()) {
+            const filterTerms = query_filter.toLowerCase().split(',').map(t => t.trim()).filter(Boolean)
+            adsData = adsData.filter(row =>
+              filterTerms.some(term => row.query.includes(term))
+            )
+            console.log(`Applied query filter: ${query_filter}, remaining: ${adsData.length} keywords`)
+          }
+
+          console.log(`Fetched ${adsData.length} keywords from Google Ads API`)
+        }
+      }
+    } catch (adsError) {
+      console.error('Google Ads API Error:', adsError)
+      // エラーがあってもGSCデータだけで続行
+    }
+
     // Google Adsデータとマージ
     const cannibalizationData = []
 
-    if (ads_data && Array.isArray(ads_data)) {
-      ads_data.forEach(adRow => {
+    if (adsData && Array.isArray(adsData)) {
+      adsData.forEach(adRow => {
         const query = adRow.query?.toLowerCase().trim()
         const gscMatch = gscData[query]
 
@@ -244,14 +329,18 @@ export default async function handler(req, res) {
     // クエリタイプ別集計
     const queryTypeBreakdown = calculateQueryTypeBreakdown(filteredData)
 
+    // 統計分析
+    const statisticalAnalysis = performStatisticalAnalysis(filteredData)
+
     res.status(200).json({
       summary,
       queries: filteredData,
       directory_breakdown: directoryBreakdown,
       query_type_breakdown: queryTypeBreakdown,
+      statistical_analysis: statisticalAnalysis,
       metadata: {
         gsc_queries: Object.keys(gscData).length,
-        ads_queries: ads_data?.length || 0,
+        ads_queries: adsData.length,
         matched_queries: cannibalizationData.length,
         filtered_queries: filteredData.length,
         date_range: { start: start_date, end: end_date }
@@ -395,4 +484,187 @@ function calculateQueryTypeBreakdown(data) {
     }))
     .filter(item => item.count > 0)
     .sort((a, b) => b.total_estimated_savings - a.total_estimated_savings)
+}
+
+// ========== 統計分析関数 ==========
+
+// ピアソン相関係数計算
+function calculateCorrelation(x, y) {
+  const n = x.length
+  if (n === 0 || n !== y.length) return 0
+
+  const sumX = x.reduce((a, b) => a + b, 0)
+  const sumY = y.reduce((a, b) => a + b, 0)
+  const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0)
+  const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0)
+  const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0)
+
+  const numerator = n * sumXY - sumX * sumY
+  const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY))
+
+  if (denominator === 0) return 0
+  return numerator / denominator
+}
+
+// 相関分析
+function performCorrelationAnalysis(data) {
+  if (data.length === 0) return {}
+
+  const adCosts = data.map(d => d.ad_cost)
+  const organicClicks = data.map(d => d.organic_clicks)
+  const adClicks = data.map(d => d.ad_clicks)
+  const positions = data.map(d => d.organic_position)
+  const canibalizationScores = data.map(d => d.canibalization_score)
+
+  return {
+    // 広告費 vs オーガニッククリック（負の相関が理想）
+    ad_cost_vs_organic_clicks: {
+      correlation: calculateCorrelation(adCosts, organicClicks),
+      interpretation: getCorrelationInterpretation(calculateCorrelation(adCosts, organicClicks)),
+      insight: '負の相関が強いほど、広告削減の余地が大きい'
+    },
+    // 順位 vs 広告費（負の相関が理想）
+    position_vs_ad_cost: {
+      correlation: calculateCorrelation(positions, adCosts),
+      interpretation: getCorrelationInterpretation(calculateCorrelation(positions, adCosts)),
+      insight: '上位表示ほど広告費が高い場合、カニバリゼーションが発生'
+    },
+    // オーガニッククリック vs 広告クリック（負の相関がカニバリの証拠）
+    organic_vs_ad_clicks: {
+      correlation: calculateCorrelation(organicClicks, adClicks),
+      interpretation: getCorrelationInterpretation(calculateCorrelation(organicClicks, adClicks)),
+      insight: '負の相関が強いほど、カニバリゼーションが顕著'
+    },
+    // カニバリスコア vs 広告費
+    canibalization_vs_ad_cost: {
+      correlation: calculateCorrelation(canibalizationScores, adCosts),
+      interpretation: getCorrelationInterpretation(calculateCorrelation(canibalizationScores, adCosts)),
+      insight: '正の相関が強いほど、高スコアのクエリに広告費が集中'
+    }
+  }
+}
+
+// 相関係数の解釈
+function getCorrelationInterpretation(r) {
+  const abs = Math.abs(r)
+  if (abs >= 0.7) return { strength: '強い', direction: r > 0 ? '正' : '負' }
+  if (abs >= 0.4) return { strength: '中程度', direction: r > 0 ? '正' : '負' }
+  if (abs >= 0.2) return { strength: '弱い', direction: r > 0 ? '正' : '負' }
+  return { strength: 'ほぼなし', direction: '-' }
+}
+
+// 異常値検出（IQR法）
+function detectOutliers(data) {
+  if (data.length === 0) return { outliers: [], statistics: {} }
+
+  // 広告費による異常値検出
+  const adCosts = data.map(d => d.ad_cost).sort((a, b) => a - b)
+  const q1Index = Math.floor(adCosts.length * 0.25)
+  const q3Index = Math.floor(adCosts.length * 0.75)
+  const q1 = adCosts[q1Index]
+  const q3 = adCosts[q3Index]
+  const iqr = q3 - q1
+  const lowerBound = q1 - 1.5 * iqr
+  const upperBound = q3 + 1.5 * iqr
+
+  // 異常値の特定
+  const outliers = data.filter(d => d.ad_cost < lowerBound || d.ad_cost > upperBound)
+    .map(d => ({
+      query: d.query,
+      ad_cost: d.ad_cost,
+      organic_position: d.organic_position,
+      type: d.ad_cost > upperBound ? 'high_cost' : 'low_cost',
+      severity: Math.abs(d.ad_cost - (d.ad_cost > upperBound ? upperBound : lowerBound)) / iqr
+    }))
+    .sort((a, b) => b.severity - a.severity)
+    .slice(0, 20) // 上位20件
+
+  return {
+    outliers,
+    statistics: {
+      q1,
+      q3,
+      iqr,
+      lowerBound,
+      upperBound,
+      outlierCount: outliers.length,
+      outlierRate: (outliers.length / data.length * 100).toFixed(1)
+    }
+  }
+}
+
+// クラスタリング（簡易版k-means風）
+function performClustering(data) {
+  if (data.length === 0) return []
+
+  // 特徴量の正規化
+  const normalize = (values) => {
+    const min = Math.min(...values)
+    const max = Math.max(...values)
+    const range = max - min
+    return range === 0 ? values.map(() => 0.5) : values.map(v => (v - min) / range)
+  }
+
+  const normalizedPositions = normalize(data.map(d => d.organic_position))
+  const normalizedAdCosts = normalize(data.map(d => d.ad_cost))
+  const normalizedOrgClicks = normalize(data.map(d => d.organic_clicks))
+
+  // 3つのクラスターに分類
+  const clusters = data.map((item, index) => {
+    const pos = normalizedPositions[index]
+    const cost = normalizedAdCosts[index]
+    const clicks = normalizedOrgClicks[index]
+
+    // クラスター判定ロジック
+    if (pos < 0.3 && cost > 0.5) {
+      // 高順位 & 高広告費 = 最優先削減候補
+      return { ...item, cluster: 'high_priority', cluster_name: '最優先削減候補' }
+    } else if (pos < 0.5 && clicks > 0.5) {
+      // 中順位 & 高オーガニッククリック = 削減候補
+      return { ...item, cluster: 'medium_priority', cluster_name: '削減候補' }
+    } else if (cost < 0.3) {
+      // 低広告費 = 現状維持
+      return { ...item, cluster: 'low_priority', cluster_name: '現状維持' }
+    } else {
+      // その他 = 要検討
+      return { ...item, cluster: 'review_needed', cluster_name: '要検討' }
+    }
+  })
+
+  // クラスター別サマリー
+  const clusterSummary = {
+    high_priority: clusters.filter(c => c.cluster === 'high_priority'),
+    medium_priority: clusters.filter(c => c.cluster === 'medium_priority'),
+    low_priority: clusters.filter(c => c.cluster === 'low_priority'),
+    review_needed: clusters.filter(c => c.cluster === 'review_needed')
+  }
+
+  return {
+    clusters,
+    summary: Object.entries(clusterSummary).map(([key, items]) => ({
+      cluster: key,
+      cluster_name: items[0]?.cluster_name || key,
+      count: items.length,
+      total_ad_cost: items.reduce((sum, i) => sum + i.ad_cost, 0),
+      total_estimated_savings: items.reduce((sum, i) => sum + i.estimated_savings, 0),
+      avg_position: items.length > 0 ? items.reduce((sum, i) => sum + i.organic_position, 0) / items.length : 0
+    }))
+  }
+}
+
+// 統計分析メイン関数
+function performStatisticalAnalysis(data) {
+  if (data.length === 0) {
+    return {
+      correlation_analysis: {},
+      outlier_detection: { outliers: [], statistics: {} },
+      clustering: { clusters: [], summary: [] }
+    }
+  }
+
+  return {
+    correlation_analysis: performCorrelationAnalysis(data),
+    outlier_detection: detectOutliers(data),
+    clustering: performClustering(data)
+  }
 }

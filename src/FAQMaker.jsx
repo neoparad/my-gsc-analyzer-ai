@@ -283,14 +283,9 @@ function FAQMaker() {
             <div className="bg-white rounded-lg shadow-lg p-6">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800 mb-2">
+                  <h2 className="text-xl font-bold text-gray-800">
                     分析結果: {results.keyword}
                   </h2>
-                  <div className="text-sm text-gray-600">
-                    Google SERPS: {results.metadata.serps_count}件 |
-                    Brave FAQ: {results.metadata.brave_count}件 →
-                    AI分析: {results.questions.length}件の質問を生成
-                  </div>
                 </div>
                 <button
                   onClick={copyAllFAQ}
@@ -336,7 +331,7 @@ function FAQMaker() {
                 </div>
 
                 <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-blue-500">
-                  <div className="text-sm font-medium text-gray-700 mb-2">回答（PREP法）</div>
+                  <div className="text-sm font-medium text-gray-700 mb-2">回答</div>
                   <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
                     {item.answer}
                   </p>

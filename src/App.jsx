@@ -9,6 +9,9 @@ import DirectoryAnalysis from './DirectoryAnalysis'
 import BrandAnalysis from './BrandAnalysis'
 import PageSpeedAnalysisV2 from './PageSpeedAnalysisV2'
 import AdsCannibalizationAnalysis from './AdsCannibalizationAnalysis'
+import IndexAnalysis from './IndexAnalysis'
+import FAQMaker from './FAQMaker'
+import CSSJSAnalysis from './CSSJSAnalysis'
 import Login from './Login'
 import ProtectedRoute from './ProtectedRoute'
 
@@ -31,7 +34,10 @@ function App() {
                   <Route path="/directory-analysis" element={<DirectoryAnalysis />} />
                   <Route path="/brand-analysis" element={<BrandAnalysis />} />
                   <Route path="/pagespeed-analysis" element={<PageSpeedAnalysisV2 />} />
+                  <Route path="/cssjs-analysis" element={<CSSJSAnalysis />} />
                   <Route path="/ads-cannibalization" element={<AdsCannibalizationAnalysis />} />
+                  <Route path="/index-analysis" element={<IndexAnalysis />} />
+                  <Route path="/faq-maker" element={<FAQMaker />} />
                 </Routes>
               </div>
             </div>

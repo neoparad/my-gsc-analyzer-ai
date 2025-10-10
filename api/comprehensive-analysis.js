@@ -74,32 +74,51 @@ ${Object.entries(audits)
   .join('\n')}
 
 # 出力フォーマット
-以下のJSON配列形式で、優先度の高い改善項目から順に出力してください：
+以下のJSON構造で出力してください：
 
 \`\`\`json
-[
-  {
-    "id": "unique-id",
-    "title": "改善項目のタイトル",
-    "category": "CSS" | "JavaScript" | "画像" | "HTML" | "フォント" | "その他",
-    "priority": "高" | "中" | "低",
-    "difficulty": "易" | "中" | "難",
-    "impact": 1-5の数値（5が最大のインパクト）,
-    "estimatedImprovement": "予想される改善効果（例: LCP 0.5秒改善）",
-    "summary": "改善内容の要約（1-2文）",
-    "technicalDetails": {
-      "targetFiles": ["対象ファイルのURL"],
-      "currentState": "現在の状態",
-      "specificIssue": "具体的な問題点"
+{
+  "standardImprovements": [
+    {
+      "id": "unique-id",
+      "title": "改善項目のタイトル",
+      "category": "CSS" | "JavaScript" | "画像" | "HTML" | "フォント" | "その他",
+      "priority": "高" | "中" | "低",
+      "difficulty": "易" | "中" | "難",
+      "effectImpact": "高" | "中" | "低",
+      "coreWebVitalsImpact": ["LCP", "FID", "CLS", "FCP", "TTI", "TBT"] から該当するものを配列で指定,
+      "estimatedImprovement": "予想される改善効果（例: LCP 0.5秒改善）",
+      "summary": "改善内容の要約（1-2文）",
+      "technicalDetails": {
+        "targetFiles": ["対象ファイルのURL"],
+        "currentState": "現在の状態",
+        "specificIssue": "具体的な問題点"
+      }
     }
-  }
-]
+  ],
+  "additionalImprovements": [
+    {
+      "id": "additional-unique-id",
+      "title": "追加改善項目のタイトル",
+      "category": "CSS" | "JavaScript" | "画像" | "HTML" | "フォント" | "その他",
+      "priority": "高" | "中" | "低",
+      "difficulty": "易" | "中" | "難",
+      "effectImpact": "高" | "中" | "低",
+      "coreWebVitalsImpact": ["LCP", "FID", "CLS", "FCP", "TTI", "TBT"] から該当するものを配列で指定,
+      "summary": "改善内容の要約（1-2文）",
+      "reason": "PageSpeed Insightで検出されなかった理由と、この改善が有効な理由"
+    }
+  ]
+}
 \`\`\`
 
 重要：
+- standardImprovements: PageSpeed Insightsで検出された改善項目（10-15項目）
+- additionalImprovements: PageSpeed Insightsには出ないが、HTMLソース・DOMツリー・デベロッパーツール分析から見つかる追加改善項目（5-10項目）
+  例: meta viewport設定の最適化、画像lazy loading未実装、不要なDOMノード削減、インラインスタイルの外部化、etc.
 - 実際のファイルURL、サイズ、数値データを使用してください
-- 優先度は影響度と実装難易度を考慮してください
-- 上位10-15項目程度に絞ってください
+- effectImpactは実装後のパフォーマンス改善度合いを示します
+- coreWebVitalsImpactは影響を受けるCore Web Vitals指標を配列で指定（複数可）
 - 各項目は実装可能な具体的な内容にしてください`
 
     const result = await model.generateContent(prompt)
@@ -109,9 +128,9 @@ ${Object.entries(audits)
     console.log('  ✓ AI analysis complete')
 
     // JSONをパース
-    let improvementItems
+    let analysisResult
     try {
-      improvementItems = JSON.parse(text)
+      analysisResult = JSON.parse(text)
     } catch (e) {
       console.error('Failed to parse Gemini response as JSON:', e)
       return res.status(500).json({
@@ -120,12 +139,20 @@ ${Object.entries(audits)
       })
     }
 
+    const standardImprovements = analysisResult.standardImprovements || []
+    const additionalImprovements = analysisResult.additionalImprovements || []
+    const allItems = [...standardImprovements, ...additionalImprovements]
+
     res.status(200).json({
-      improvementItems,
+      improvementItems: standardImprovements, // 後方互換性のため
+      standardImprovements,
+      additionalImprovements,
       summary: {
-        totalItems: improvementItems.length,
-        highPriority: improvementItems.filter(item => item.priority === '高').length,
-        categories: [...new Set(improvementItems.map(item => item.category))]
+        totalItems: allItems.length,
+        standardCount: standardImprovements.length,
+        additionalCount: additionalImprovements.length,
+        highPriority: allItems.filter(item => item.priority === '高').length,
+        categories: [...new Set(allItems.map(item => item.category))]
       }
     })
 

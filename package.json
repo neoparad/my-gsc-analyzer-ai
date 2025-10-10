@@ -12,10 +12,13 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@sparticuz/chromium": "^141.0.0",
+    "@supabase/supabase-js": "^2.75.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "fast-xml-parser": "^4.3.0",
+    "google-ads-api": "^21.0.1",
     "googleapis": "^161.0.0",
     "inngest": "^3.44.0",
     "jsonwebtoken": "^9.0.2",
@@ -25,7 +28,8 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.9.3",
     "recharts": "^2.10.0",
-    "simple-statistics": "^7.8.8"
+    "simple-statistics": "^7.8.8",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",

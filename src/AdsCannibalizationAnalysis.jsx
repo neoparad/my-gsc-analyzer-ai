@@ -1,15 +1,18 @@
 import React, { useState, useRef } from 'react'
-import { Download, Upload, Filter, X, Plus, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react'
+import { Download, Filter, X, Plus, AlertCircle } from 'lucide-react'
 
 function AdsCannibalizationAnalysis() {
   const [formData, setFormData] = useState({
     site_url: 'https://www.tabirai.net/',
     start_date: '',
-    end_date: ''
+    end_date: '',
+    customer_id: '',
+    query_filter: ''
   })
 
-  const [adsFile, setAdsFile] = useState(null)
-  const [adsData, setAdsData] = useState([])
+  const [campaigns, setCampaigns] = useState([])
+  const [selectedCampaigns, setSelectedCampaigns] = useState([])
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [results, setResults] = useState(null)
@@ -32,57 +35,46 @@ function AdsCannibalizationAnalysis() {
   const [showFilters, setShowFilters] = useState(false)
   const [activePositionPreset, setActivePositionPreset] = useState('2位未満')
 
-  const fileInputRef = useRef(null)
   const abortControllerRef = useRef(null)
 
-  // CSVアップロード処理
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
+  // キャンペーン一覧取得
+  const handleFetchCampaigns = async () => {
+    if (!formData.customer_id) {
+      setError('Google Ads Customer IDを入力してください')
+      return
+    }
 
-    setAdsFile(file)
-    const reader = new FileReader()
+    setLoadingCampaigns(true)
+    setError('')
 
-    reader.onload = (event) => {
-      try {
-        const csvText = event.target.result
-        const lines = csvText.split('\n')
-        const headers = lines[0].split(',').map(h => h.trim())
+    try {
+      const response = await fetch('/api/fetch-campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: formData.customer_id
+        })
+      })
 
-        const parsedData = []
-        for (let i = 1; i < lines.length; i++) {
-          if (!lines[i].trim()) continue
-
-          const values = lines[i].split(',').map(v => v.trim())
-          const row = {
-            query: values[0] || '',
-            ad_clicks: parseInt(values[1]) || 0,
-            ad_impressions: parseInt(values[2]) || 0,
-            cost: parseFloat(values[3]) || 0,
-            cpc: parseFloat(values[4]) || 0,
-            conversions: parseFloat(values[5]) || 0
-          }
-          parsedData.push(row)
-        }
-
-        setAdsData(parsedData)
-        setError('')
-      } catch (err) {
-        setError('CSVファイルの解析に失敗しました: ' + err.message)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'キャンペーン取得に失敗しました')
       }
-    }
 
-    reader.onerror = () => {
-      setError('ファイルの読み込みに失敗しました')
+      const data = await response.json()
+      setCampaigns(data.campaigns)
+      setSelectedCampaigns([]) // リセット
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoadingCampaigns(false)
     }
-
-    reader.readAsText(file)
   }
 
   // 分析実行
   const handleAnalyze = async () => {
-    if (!adsData.length) {
-      setError('Google AdsのCSVファイルをアップロードしてください')
+    if (!formData.customer_id) {
+      setError('Google Ads Customer IDを入力してください')
       return
     }
 
@@ -96,7 +88,8 @@ function AdsCannibalizationAnalysis() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
-          ads_data: adsData,
+          campaign_ids: selectedCampaigns,
+          query_filter: formData.query_filter,
           filters
         }),
         signal: abortControllerRef.current.signal
@@ -208,7 +201,7 @@ function AdsCannibalizationAnalysis() {
         <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
           <h2 className="text-xl font-bold mb-4">データ入力</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">サイトURL</label>
               <input
@@ -219,6 +212,24 @@ function AdsCannibalizationAnalysis() {
                 placeholder="https://example.com/"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Google Ads Customer ID
+              </label>
+              <input
+                type="text"
+                value={formData.customer_id}
+                onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
+                className="w-full p-3 border border-gray-300 rounded-md"
+                placeholder="123-456-7890"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Google Ads管理画面の右上に表示されているIDを入力してください
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">開始日</label>
               <input
@@ -239,39 +250,75 @@ function AdsCannibalizationAnalysis() {
             </div>
           </div>
 
+          {/* キャンペーン読み込み */}
+          <div className="mb-6">
+            <button
+              onClick={handleFetchCampaigns}
+              disabled={loadingCampaigns || !formData.customer_id}
+              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loadingCampaigns ? 'キャンペーン読み込み中...' : 'キャンペーン一覧を読み込む'}
+            </button>
+          </div>
+
+          {/* キャンペーン選択 */}
+          {campaigns.length > 0 && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                キャンペーン選択（{selectedCampaigns.length}件選択中）
+              </label>
+              <div className="border border-gray-300 rounded-md p-4 max-h-60 overflow-y-auto bg-gray-50">
+                <div className="space-y-2">
+                  {campaigns.map((campaign) => (
+                    <label key={campaign.id} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedCampaigns.includes(campaign.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCampaigns([...selectedCampaigns, campaign.id])
+                          } else {
+                            setSelectedCampaigns(selectedCampaigns.filter(id => id !== campaign.id))
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-gray-900">{campaign.name}</div>
+                        <div className="text-xs text-gray-500">
+                          広告費: ¥{(campaign.cost / 1000).toFixed(0)}k | クリック: {campaign.clicks.toLocaleString()}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                未選択の場合は全キャンペーンが対象になります
+              </p>
+            </div>
+          )}
+
+          {/* クエリフィルター */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Google Ads データ（CSV）
+              クエリフィルター（オプション）
             </label>
-            <div className="flex gap-4 items-center">
-              <input
-                type="file"
-                accept=".csv"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
-                <Upload className="w-4 h-4" />
-                CSVアップロード
-              </button>
-              {adsFile && (
-                <span className="text-sm text-green-600">
-                  ✓ {adsFile.name} ({adsData.length}件)
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              必須列: クエリ, クリック数, 表示回数, 費用, 平均CPC（, コンバージョン数）
+            <input
+              type="text"
+              value={formData.query_filter}
+              onChange={(e) => setFormData({ ...formData, query_filter: e.target.value })}
+              className="w-full p-3 border border-gray-300 rounded-md"
+              placeholder="例: 沖縄,北海道,東京（カンマ区切り）"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              特定のキーワードを含むクエリのみを分析します（OR条件）
             </p>
           </div>
 
           <button
             onClick={handleAnalyze}
-            disabled={loading || !adsData.length}
+            disabled={loading || !formData.customer_id}
             className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-md hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 font-semibold"
           >
             {loading ? '分析中...' : '分析を開始'}
@@ -496,6 +543,125 @@ function AdsCannibalizationAnalysis() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* 統計分析 */}
+        {results && results.statistical_analysis && (
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
+            <h2 className="text-xl font-bold mb-4">📊 統計分析</h2>
+
+            {/* 相関分析 */}
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3">相関分析</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(results.statistical_analysis.correlation_analysis).map(([key, value]) => (
+                  <div key={key} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <div className="text-sm text-gray-600 mb-1">
+                      {key === 'ad_cost_vs_organic_clicks' && '広告費 vs オーガニッククリック'}
+                      {key === 'position_vs_ad_cost' && '順位 vs 広告費'}
+                      {key === 'organic_vs_ad_clicks' && 'オーガニック vs 広告クリック'}
+                      {key === 'canibalization_vs_ad_cost' && 'カニバリスコア vs 広告費'}
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-2xl font-bold ${
+                        Math.abs(value.correlation) >= 0.7 ? 'text-red-600' :
+                        Math.abs(value.correlation) >= 0.4 ? 'text-orange-600' :
+                        'text-gray-600'
+                      }`}>
+                        {value.correlation.toFixed(3)}
+                      </span>
+                      <span className={`px-2 py-1 text-xs rounded-full ${
+                        value.interpretation.strength === '強い' ? 'bg-red-100 text-red-800' :
+                        value.interpretation.strength === '中程度' ? 'bg-orange-100 text-orange-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {value.interpretation.strength}{value.interpretation.direction}の相関
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600">{value.insight}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* クラスタリング */}
+            {results.statistical_analysis.clustering.summary && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold mb-3">クエリクラスタリング</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {results.statistical_analysis.clustering.summary.map((cluster) => (
+                    <div key={cluster.cluster} className={`border-2 rounded-lg p-4 ${
+                      cluster.cluster === 'high_priority' ? 'border-red-500 bg-red-50' :
+                      cluster.cluster === 'medium_priority' ? 'border-yellow-500 bg-yellow-50' :
+                      cluster.cluster === 'low_priority' ? 'border-green-500 bg-green-50' :
+                      'border-gray-500 bg-gray-50'
+                    }`}>
+                      <div className="text-sm font-medium text-gray-700 mb-2">
+                        {cluster.cluster_name}
+                      </div>
+                      <div className="text-2xl font-bold text-gray-900 mb-1">
+                        {cluster.count}件
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        <div>平均順位: {cluster.avg_position.toFixed(1)}</div>
+                        <div>広告費: ¥{(cluster.total_ad_cost / 1000).toFixed(0)}k</div>
+                        <div className="font-medium text-green-600">
+                          削減: ¥{(cluster.total_estimated_savings / 1000).toFixed(0)}k
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 異常値検出 */}
+            {results.statistical_analysis.outlier_detection.outliers.length > 0 && (
+              <div>
+                <h3 className="text-lg font-semibold mb-3">異常値検出（高額広告費）</h3>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-3">
+                  <div className="text-sm text-gray-700">
+                    <strong>{results.statistical_analysis.outlier_detection.statistics.outlierCount}件</strong>の異常値を検出
+                    （全体の{results.statistical_analysis.outlier_detection.statistics.outlierRate}%）
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    IQR範囲: ¥{(results.statistical_analysis.outlier_detection.statistics.lowerBound / 1000).toFixed(0)}k
+                    〜 ¥{(results.statistical_analysis.outlier_detection.statistics.upperBound / 1000).toFixed(0)}k
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">クエリ</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">広告費</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">順位</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">タイプ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {results.statistical_analysis.outlier_detection.outliers.slice(0, 5).map((outlier, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm text-gray-900 max-w-xs truncate">{outlier.query}</td>
+                          <td className="px-4 py-2 text-sm font-medium text-red-600">
+                            ¥{(outlier.ad_cost / 1000).toFixed(1)}k
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900">{outlier.organic_position.toFixed(1)}</td>
+                          <td className="px-4 py-2 text-sm">
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              outlier.type === 'high_cost' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {outlier.type === 'high_cost' ? '高額' : '低額'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

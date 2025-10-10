@@ -18,31 +18,56 @@ function RankTracker() {
   const [analyzingStats, setAnalyzingStats] = useState(false)
   const [analyzingAI, setAnalyzingAI] = useState(false)
 
+  // Supabaseからクエリを読み込む
   useEffect(() => {
     if (!user?.username) return
-    const storageKey = `rankTrackerQueries_${user.username}`
-    const saved = localStorage.getItem(storageKey)
-    if (saved) {
-      try {
-        setQueries(JSON.parse(saved))
-      } catch (e) {
-        console.error('Failed to load queries:', e)
-      }
-    }
-  }, [user])
 
-  useEffect(() => {
-    if (queries.length > 0 && user?.username) {
-      const storageKey = `rankTrackerQueries_${user.username}`
+    const loadQueries = async () => {
       try {
-        localStorage.setItem(storageKey, JSON.stringify(queries))
+        const response = await fetch(`/api/rank-tracker-queries?userId=${encodeURIComponent(user.username)}&siteUrl=${encodeURIComponent(siteUrl)}`)
+        const data = await response.json()
+
+        if (response.ok && data.queries) {
+          setQueries(data.queries)
+        }
       } catch (e) {
-        // 容量オーバーの場合は保存をスキップ
-        console.warn('Failed to save queries to localStorage (quota exceeded):', e)
-        setError('クエリデータが大きすぎるため、保存できませんでした。データベース移行を検討してください。')
+        console.error('Failed to load queries from database:', e)
+        setError('クエリの読み込みに失敗しました')
       }
     }
-  }, [queries, user])
+
+    loadQueries()
+  }, [user, siteUrl])
+
+  // Supabaseにクエリを保存する（デバウンス付き）
+  useEffect(() => {
+    if (queries.length === 0 || !user?.username) return
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        await fetch('/api/rank-tracker-queries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: user.username,
+            siteUrl,
+            queries: queries.map(q => ({
+              query: q.query,
+              topPageUrl: q.topPageUrl,
+              pageTitle: q.pageTitle,
+              currentPosition: q.currentPosition,
+              latestDate: q.latestDate,
+              history: q.history
+            }))
+          })
+        })
+      } catch (e) {
+        console.error('Failed to save queries to database:', e)
+      }
+    }, 1000) // 1秒のデバウンス
+
+    return () => clearTimeout(timeoutId)
+  }, [queries, user, siteUrl])
 
   const addQuery = () => {
     if (!newQuery.trim()) return
@@ -69,8 +94,25 @@ function RankTracker() {
     setError('')
   }
 
-  const deleteQuery = (id) => {
-    setQueries(queries.filter(q => q.id !== id))
+  const deleteQuery = async (id) => {
+    try {
+      // Supabaseから削除
+      const response = await fetch('/api/rank-tracker-queries', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queryId: id })
+      })
+
+      if (response.ok) {
+        // ローカルステートからも削除
+        setQueries(queries.filter(q => q.id !== id))
+      } else {
+        throw new Error('Failed to delete query')
+      }
+    } catch (e) {
+      console.error('Failed to delete query:', e)
+      setError('クエリの削除に失敗しました')
+    }
   }
 
   const fetchLatestRanks = async () => {

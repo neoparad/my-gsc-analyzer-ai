@@ -17,6 +17,7 @@ function PageSpeedAnalysisV2() {
   const [loadingDeepAnalysis, setLoadingDeepAnalysis] = useState(false)
   const [deepAnalysisProgress, setDeepAnalysisProgress] = useState('')
   const [improvementItems, setImprovementItems] = useState(null)
+  const [additionalImprovements, setAdditionalImprovements] = useState(null)
 
   // フェーズ3: 詳細改善策
   const [selectedItems, setSelectedItems] = useState([])
@@ -141,7 +142,8 @@ function PageSpeedAnalysisV2() {
       }
 
       const comprehensiveResult = await comprehensiveResponse.json()
-      setImprovementItems(comprehensiveResult.improvementItems)
+      setImprovementItems(comprehensiveResult.standardImprovements || comprehensiveResult.improvementItems)
+      setAdditionalImprovements(comprehensiveResult.additionalImprovements || [])
 
     } catch (error) {
       console.error('Deep analysis error:', error)
@@ -185,7 +187,8 @@ function PageSpeedAnalysisV2() {
       const deepData = await deepResponse.json()
 
       for (const itemId of selectedItems) {
-        const selectedItem = improvementItems.find(item => item.id === itemId)
+        const allItems = [...improvementItems, ...(additionalImprovements || [])]
+        const selectedItem = allItems.find(item => item.id === itemId)
 
         const response = await fetch('/api/detailed-improvement', {
           method: 'POST',
@@ -423,24 +426,49 @@ function PageSpeedAnalysisV2() {
 
       {/* フェーズ2: 改善項目選択 */}
       {phase === 2 && !loadingDeepAnalysis && improvementItems && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">
-            AI分析完了：改善項目を選択してください
-          </h2>
-          <p className="text-gray-600 mb-6">
-            詳細な改善プランを生成したい項目にチェックを入れてください
-          </p>
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">
+              AI分析完了：改善項目を選択してください
+            </h2>
+            <p className="text-gray-600 mb-6">
+              詳細な改善プランを生成したい項目にチェックを入れてください
+            </p>
 
-          <div className="space-y-3 mb-6">
-            {improvementItems.map((item) => (
-              <ImprovementItemCard
-                key={item.id}
-                item={item}
-                selected={selectedItems.includes(item.id)}
-                onToggle={() => toggleItemSelection(item.id)}
-              />
-            ))}
+            <div className="space-y-3 mb-6">
+              {improvementItems.map((item) => (
+                <ImprovementItemCard
+                  key={item.id}
+                  item={item}
+                  selected={selectedItems.includes(item.id)}
+                  onToggle={() => toggleItemSelection(item.id)}
+                />
+              ))}
+            </div>
           </div>
+
+          {/* 追加改善項目セクション */}
+          {additionalImprovements && additionalImprovements.length > 0 && (
+            <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg shadow p-6">
+              <h2 className="text-2xl font-bold text-indigo-900 mb-4">
+                💡 追加で改善できる項目の提案
+              </h2>
+              <p className="text-indigo-700 mb-6">
+                PageSpeed Insightsでは検出されませんでしたが、分析で見つかった改善項目です
+              </p>
+
+              <div className="space-y-3 mb-6">
+                {additionalImprovements.map((item) => (
+                  <ImprovementItemCard
+                    key={item.id}
+                    item={item}
+                    selected={selectedItems.includes(item.id)}
+                    onToggle={() => toggleItemSelection(item.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-4">
             <button
@@ -482,7 +510,8 @@ function PageSpeedAnalysisV2() {
           </div>
 
           {selectedItems.map((itemId) => {
-            const item = improvementItems.find(i => i.id === itemId)
+            const allItems = [...improvementItems, ...(additionalImprovements || [])]
+            const item = allItems.find(i => i.id === itemId)
             const plan = detailedPlans[itemId]
 
             if (!plan) return null
@@ -504,6 +533,7 @@ function PageSpeedAnalysisV2() {
                 setPhase(1)
                 setAnalysisData(null)
                 setImprovementItems(null)
+                setAdditionalImprovements(null)
                 setSelectedItems([])
                 setDetailedPlans({})
               }}
@@ -899,6 +929,24 @@ function ImprovementItemCard({ item, selected, onToggle }) {
     return 'bg-green-100 text-green-800'
   }
 
+  const getEffectColor = (effect) => {
+    if (effect === '高') return 'bg-purple-100 text-purple-800'
+    if (effect === '中') return 'bg-blue-100 text-blue-800'
+    return 'bg-gray-100 text-gray-800'
+  }
+
+  const getCWVColor = (metric) => {
+    const colors = {
+      'LCP': 'bg-orange-100 text-orange-700',
+      'FID': 'bg-blue-100 text-blue-700',
+      'CLS': 'bg-green-100 text-green-700',
+      'FCP': 'bg-yellow-100 text-yellow-700',
+      'TTI': 'bg-purple-100 text-purple-700',
+      'TBT': 'bg-pink-100 text-pink-700'
+    }
+    return colors[metric] || 'bg-gray-100 text-gray-700'
+  }
+
   return (
     <div
       onClick={onToggle}
@@ -919,33 +967,44 @@ function ImprovementItemCard({ item, selected, onToggle }) {
         <div className="flex-1">
           <div className="flex items-start justify-between mb-2">
             <h3 className="font-bold text-gray-900">{item.title}</h3>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${getPriorityColor(item.priority)}`}>
-                {item.priority}
+                優先度: {item.priority}
               </span>
               <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getDifficultyColor(item.difficulty)}`}>
                 難易度: {item.difficulty}
               </span>
+              {item.effectImpact && (
+                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getEffectColor(item.effectImpact)}`}>
+                  効果: {item.effectImpact}
+                </span>
+              )}
             </div>
           </div>
 
           <p className="text-sm text-gray-600 mb-2">{item.summary}</p>
 
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-4 text-sm flex-wrap">
             <span className="text-gray-500">
               カテゴリ: <span className="font-semibold text-gray-700">{item.category}</span>
             </span>
-            <span className="text-gray-500">
-              効果: <span className="font-semibold text-gray-700">{item.estimatedImprovement}</span>
-            </span>
-            <div className="flex items-center gap-1">
-              <span className="text-gray-500">インパクト:</span>
-              {[1, 2, 3, 4, 5].map(star => (
-                <span key={star} className={star <= item.impact ? 'text-yellow-400' : 'text-gray-300'}>
-                  ★
-                </span>
-              ))}
-            </div>
+            {item.estimatedImprovement && (
+              <span className="text-gray-500">
+                改善効果: <span className="font-semibold text-gray-700">{item.estimatedImprovement}</span>
+              </span>
+            )}
+            {item.coreWebVitalsImpact && item.coreWebVitalsImpact.length > 0 && (
+              <div className="flex items-center gap-1">
+                <span className="text-gray-500">影響指標:</span>
+                <div className="flex gap-1">
+                  {item.coreWebVitalsImpact.map(metric => (
+                    <span key={metric} className={`px-2 py-0.5 rounded text-xs font-semibold ${getCWVColor(metric)}`}>
+                      {metric}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
