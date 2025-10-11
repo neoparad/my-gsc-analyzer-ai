@@ -16,7 +16,8 @@ function ComparisonPage() {
         current_start: '',
         current_end: '',
         url_filter: '',
-        query_filter: ''
+        query_filter: '',
+        exclude_queries: ''
       }
     } catch (e) {
       console.warn('Failed to load formData from sessionStorage:', e)
@@ -27,7 +28,8 @@ function ComparisonPage() {
         current_start: '',
         current_end: '',
         url_filter: '',
-        query_filter: ''
+        query_filter: '',
+        exclude_queries: ''
       }
     }
   })
@@ -746,6 +748,17 @@ function ComparisonPage() {
                 value={formData.query_filter}
                 onChange={handleInputChange}
                 placeholder="検索キーワード"
+                className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">除外クエリ</label>
+              <input
+                type="text"
+                name="exclude_queries"
+                value={formData.exclude_queries}
+                onChange={handleInputChange}
+                placeholder="除外したいキーワード (カンマ区切りで複数指定可能)"
                 className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
             </div>

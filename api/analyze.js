@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { site_url, past_start, past_end, current_start, current_end, url_filter, query_filter } = req.body
+    const { site_url, past_start, past_end, current_start, current_end, url_filter, query_filter, exclude_queries } = req.body
 
     // 環境変数から認証情報を取得（本番環境では必須）
     let credentials
@@ -116,7 +116,7 @@ export default async function handler(req, res) {
     const pastData = { rows: pastRows }
     const currentData = { rows: currentRows }
 
-    const result = processSearchConsoleData(pastData, currentData, url_filter, query_filter)
+    const result = processSearchConsoleData(pastData, currentData, url_filter, query_filter, exclude_queries)
 
     res.status(200).json(result)
 
@@ -126,20 +126,33 @@ export default async function handler(req, res) {
   }
 }
 
-function processSearchConsoleData(pastData, currentData, urlFilter, queryFilter) {
+function processSearchConsoleData(pastData, currentData, urlFilter, queryFilter, excludeQueries) {
   // 基本的なデータ処理ロジック
   const pastRows = pastData.rows || []
   const currentRows = currentData.rows || []
 
+  // 除外クエリをカンマ区切りで配列化（空白をトリム）
+  const excludeList = excludeQueries
+    ? excludeQueries.split(',').map(q => q.trim()).filter(q => q.length > 0)
+    : []
+
   // フィルタリング
   const filteredPast = pastRows.filter(row => {
     const [query, url] = row.keys
-    return (!urlFilter || url.includes(urlFilter)) && (!queryFilter || query.includes(queryFilter))
+    // 除外クエリに該当するかチェック
+    const isExcluded = excludeList.some(excludeQuery => query.includes(excludeQuery))
+    return (!urlFilter || url.includes(urlFilter)) &&
+           (!queryFilter || query.includes(queryFilter)) &&
+           !isExcluded
   })
 
   const filteredCurrent = currentRows.filter(row => {
     const [query, url] = row.keys
-    return (!urlFilter || url.includes(urlFilter)) && (!queryFilter || query.includes(queryFilter))
+    // 除外クエリに該当するかチェック
+    const isExcluded = excludeList.some(excludeQuery => query.includes(excludeQuery))
+    return (!urlFilter || url.includes(urlFilter)) &&
+           (!queryFilter || query.includes(queryFilter)) &&
+           !isExcluded
   })
 
   // 簡易的な比較処理
@@ -240,7 +253,7 @@ function processSearchConsoleData(pastData, currentData, urlFilter, queryFilter)
 
       filtered_queries: filteredCurrent.length
     },
-    filters_applied: { url_filter: urlFilter, query_filter: queryFilter }
+    filters_applied: { url_filter: urlFilter, query_filter: queryFilter, exclude_queries: excludeQueries }
   }
 }
 
