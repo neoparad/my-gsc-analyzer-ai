@@ -632,13 +632,15 @@ function ComparisonPage() {
             <XAxis
               type="number"
               dataKey="x"
-              domain={[0, 'auto']}
+              domain={[0, dataMax => (Math.ceil(dataMax * 1.1))]}
+              allowDataOverflow={false}
               label={{ value: 'Previous Position', position: 'insideBottom', offset: -5 }}
             />
             <YAxis
               type="number"
               dataKey="y"
-              domain={[0, 'auto']}
+              domain={[0, dataMax => (Math.ceil(dataMax * 1.1))]}
+              allowDataOverflow={false}
               label={{ value: 'Current Position', angle: -90, position: 'insideLeft' }}
             />
             <Legend

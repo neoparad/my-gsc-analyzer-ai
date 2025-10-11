@@ -160,7 +160,7 @@ function IntentView({ intentClassification }) {
               <div>
                 <h5 className="text-sm font-medium text-gray-700 mb-2">例:</h5>
                 <div className="flex flex-wrap gap-2">
-                  {data.keywords.slice(0, 5).map((kw, idx) => (
+                  {data.keywords.slice(0, 10).map((kw, idx) => (
                     <span
                       key={idx}
                       className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded"
@@ -244,7 +244,7 @@ function CategoryView({ categoryClassification }) {
               <div>
                 <h5 className="text-sm font-medium text-gray-700 mb-2">主要キーワード:</h5>
                 <div className="flex flex-wrap gap-2">
-                  {category.keywords.slice(0, 8).map((kw, kidx) => (
+                  {category.keywords.slice(0, 15).map((kw, kidx) => (
                     <span
                       key={kidx}
                       className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded"

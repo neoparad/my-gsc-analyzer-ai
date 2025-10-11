@@ -151,7 +151,7 @@ function ClusteringView({ clustering }) {
               <div>
                 <h5 className="text-sm font-medium text-gray-700 mb-2">主要キーワード:</h5>
                 <div className="flex flex-wrap gap-2">
-                  {cluster.topKeywords.slice(0, 5).map((kw, kidx) => (
+                  {cluster.topKeywords.slice(0, 15).map((kw, kidx) => (
                     <span
                       key={kidx}
                       className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded"
@@ -261,7 +261,7 @@ function AccelerationView({ acceleration }) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {acceleration.topAccelerating.map((item, idx) => (
+                {acceleration.topAccelerating.slice(0, 30).map((item, idx) => (
                   <tr key={idx}>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{idx + 1}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{item.query}</td>
@@ -299,7 +299,7 @@ function AccelerationView({ acceleration }) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {acceleration.topDecelerating.map((item, idx) => (
+                {acceleration.topDecelerating.slice(0, 30).map((item, idx) => (
                   <tr key={idx}>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{idx + 1}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{item.query}</td>
