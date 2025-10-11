@@ -296,14 +296,14 @@ function ComparisonPage() {
       item.current_position &&
       typeof item.past_position === 'number' &&
       typeof item.current_position === 'number'
-    ).slice(0, 1000)  // 最大1000件
+    ).slice(0, 3000)  // 最大3000件
 
     const declinedFiltered = declinedWithSource.filter(item =>
       item.past_position &&
       item.current_position &&
       typeof item.past_position === 'number' &&
       typeof item.current_position === 'number'
-    ).slice(0, 1000)  // 最大1000件
+    ).slice(0, 3000)  // 最大3000件
 
     const validData = [...improvedFiltered, ...declinedFiltered]
 
