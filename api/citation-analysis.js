@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { user_id, domain, months } = req.body
+    const { user_id, domain, months, query_include, query_exclude } = req.body
 
     if (!user_id || !domain || !months || !Array.isArray(months)) {
       res.status(400).json({ error: 'user_id, domain, and months (array) are required' })
@@ -55,7 +55,7 @@ export default async function handler(req, res) {
     }
 
     // 非同期で分析を実行（バックグラウンド処理）
-    processCitationAnalysis(job.id, user_id, domain, months).catch(error => {
+    processCitationAnalysis(job.id, user_id, domain, months, query_include, query_exclude).catch(error => {
       console.error('Background analysis error:', error)
     })
 
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
 /**
  * バックグラウンドで実行されるサイテーション分析処理
  */
-async function processCitationAnalysis(jobId, userId, domain, months) {
+async function processCitationAnalysis(jobId, userId, domain, months, queryInclude, queryExclude) {
   const supabase = getSupabaseClient()
   let totalCitations = 0
 
@@ -115,8 +115,8 @@ async function processCitationAnalysis(jobId, userId, domain, months) {
           const indexRecords = await searchDomainInCommonCrawl(domain, month)
           console.log(`Found ${indexRecords.length} index records for ${month}`)
 
-          // 最大50件まで処理（負荷軽減）
-          const limitedRecords = indexRecords.slice(0, 50)
+          // 最大10件まで処理（パフォーマンス改善）
+          const limitedRecords = indexRecords.slice(0, 10)
 
           for (const record of limitedRecords) {
             try {
@@ -124,8 +124,28 @@ async function processCitationAnalysis(jobId, userId, domain, months) {
               if (html) {
                 const citations = extractCitations(html, domain, record.url)
 
+                // フィルタリング適用
+                const filteredCitations = citations.filter(citation => {
+                  const text = `${citation.context_before || ''} ${citation.citation_text || ''} ${citation.context_after || ''}`.toLowerCase()
+
+                  // クエリ含むフィルタ
+                  if (queryInclude && !text.includes(queryInclude.toLowerCase())) {
+                    return false
+                  }
+
+                  // クエリ除外フィルタ
+                  if (queryExclude) {
+                    const excludeList = queryExclude.split(',').map(q => q.trim().toLowerCase()).filter(q => q)
+                    if (excludeList.some(excludeQuery => text.includes(excludeQuery))) {
+                      return false
+                    }
+                  }
+
+                  return true
+                })
+
                 // 各サイテーションをDBに保存
-                for (const citation of citations) {
+                for (const citation of filteredCitations) {
                   const citationData = {
                     user_id: userId,
                     domain,
@@ -193,8 +213,11 @@ async function processCitationAnalysis(jobId, userId, domain, months) {
     const topics = await extractTopics(allCitations)
     console.log('Extracted topics:', topics)
 
-    // AI分析: センチメント分析（バッチ処理）
-    const citationsWithSentiment = await batchAnalyzeSentiment(allCitations, (progress) => {
+    // AI分析: センチメント分析（最大30件まで、それ以降はneutralとする）
+    const citationsToAnalyze = allCitations.slice(0, 30)
+    const citationsSkipped = allCitations.slice(30)
+
+    const citationsWithSentiment = await batchAnalyzeSentiment(citationsToAnalyze, (progress) => {
       // 50%〜100%をセンチメント分析に割り当て
       const totalProgress = 50 + Math.round(progress / 2)
       supabase
@@ -205,8 +228,14 @@ async function processCitationAnalysis(jobId, userId, domain, months) {
         .catch(e => console.error('Progress update error:', e))
     })
 
+    // スキップされたサイテーションをneutralとして追加
+    const allAnalyzedCitations = [
+      ...citationsWithSentiment,
+      ...citationsSkipped.map(c => ({ ...c, sentiment: 'neutral' }))
+    ]
+
     // センチメント結果をDBに反映
-    for (const citation of citationsWithSentiment) {
+    for (const citation of allAnalyzedCitations) {
       await supabase
         .from('citations')
         .update({
@@ -218,7 +247,7 @@ async function processCitationAnalysis(jobId, userId, domain, months) {
 
     // 月次集計を作成
     for (const month of months) {
-      const monthCitations = citationsWithSentiment.filter(c => {
+      const monthCitations = allAnalyzedCitations.filter(c => {
         return c.crawl_date && c.crawl_date.startsWith(month)
       })
 
@@ -275,7 +304,7 @@ async function processCitationAnalysis(jobId, userId, domain, months) {
       .update({
         status: 'completed',
         progress: 100,
-        total_citations: citationsWithSentiment.length,
+        total_citations: allAnalyzedCitations.length,
         completed_at: new Date().toISOString()
       })
       .eq('id', jobId)

@@ -8,6 +8,8 @@ function CitationAnalysis() {
     const saved = sessionStorage.getItem('citationAnalysis_months')
     return saved ? JSON.parse(saved) : ['2024-12', '2025-01']
   })
+  const [queryInclude, setQueryInclude] = useState(() => sessionStorage.getItem('citationAnalysis_queryInclude') || '')
+  const [queryExclude, setQueryExclude] = useState(() => sessionStorage.getItem('citationAnalysis_queryExclude') || '')
   const [competitorDomains, setCompetitorDomains] = useState(() => {
     const saved = sessionStorage.getItem('citationAnalysis_competitors')
     return saved ? JSON.parse(saved) : []
@@ -30,6 +32,8 @@ function CitationAnalysis() {
   // sessionStorage保存
   useEffect(() => { sessionStorage.setItem('citationAnalysis_domain', domain) }, [domain])
   useEffect(() => { sessionStorage.setItem('citationAnalysis_months', JSON.stringify(months)) }, [months])
+  useEffect(() => { sessionStorage.setItem('citationAnalysis_queryInclude', queryInclude) }, [queryInclude])
+  useEffect(() => { sessionStorage.setItem('citationAnalysis_queryExclude', queryExclude) }, [queryExclude])
   useEffect(() => { sessionStorage.setItem('citationAnalysis_competitors', JSON.stringify(competitorDomains)) }, [competitorDomains])
   useEffect(() => { if (results) sessionStorage.setItem('citationAnalysis_results', JSON.stringify(results)) }, [results])
 
@@ -86,7 +90,9 @@ function CitationAnalysis() {
         body: JSON.stringify({
           user_id: userId,
           domain,
-          months
+          months,
+          query_include: queryInclude,
+          query_exclude: queryExclude
         })
       })
 
@@ -225,6 +231,33 @@ function CitationAnalysis() {
             />
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                クエリ含む（任意）
+              </label>
+              <input
+                type="text"
+                value={queryInclude}
+                onChange={(e) => setQueryInclude(e.target.value)}
+                placeholder="特定のキーワードを含むサイテーションのみ"
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                クエリ除外（任意）
+              </label>
+              <input
+                type="text"
+                value={queryExclude}
+                onChange={(e) => setQueryExclude(e.target.value)}
+                placeholder="除外したいキーワード（カンマ区切り）"
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
               <label className="block text-sm font-medium text-gray-700">
@@ -285,9 +318,6 @@ function CitationAnalysis() {
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                {progress < 50 ? 'Common Crawlからデータを取得中...' : 'AIによる分析中...'}
-              </p>
             </div>
           )}
 
