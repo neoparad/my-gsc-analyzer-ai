@@ -118,6 +118,10 @@ function RankTracker() {
   const fetchLatestRanks = async () => {
     setLoading(true)
     setError('')
+    console.log('[fetchLatestRanks] Starting...')
+    console.log('[fetchLatestRanks] siteUrl:', siteUrl)
+    console.log('[fetchLatestRanks] queries:', queries.map(q => q.query))
+    console.log('[fetchLatestRanks] period:', period)
 
     try {
       const response = await fetch('/api/rank-tracker', {
@@ -130,42 +134,69 @@ function RankTracker() {
         })
       })
 
+      console.log('[fetchLatestRanks] Response status:', response.status)
+
       const data = await response.json()
+      console.log('[fetchLatestRanks] Response data:', data)
 
       if (!response.ok) {
+        console.error('[fetchLatestRanks] Error response:', data)
         throw new Error(data.error || 'データ取得に失敗しました')
       }
 
+      console.log('[fetchLatestRanks] Results count:', data.results?.length)
+
       const updatedQueries = queries.map(q => {
         const rankData = data.results.find(r => r.query === q.query)
+        console.log(`[fetchLatestRanks] Query "${q.query}":`, rankData)
         if (rankData) {
           return {
             ...q,
             topPageUrl: rankData.topPageUrl,
             pageTitle: rankData.pageTitle,
             currentPosition: rankData.currentPosition,
+            latestDate: rankData.latestDate,
             history: { ...q.history, ...rankData.history }
           }
         }
         return q
       })
 
+      console.log('[fetchLatestRanks] Updated queries:', updatedQueries)
       setQueries(updatedQueries)
     } catch (err) {
+      console.error('[fetchLatestRanks] Error:', err)
       setError(err.message)
     } finally {
       setLoading(false)
+      console.log('[fetchLatestRanks] Complete')
     }
   }
 
   const getDates = () => {
-    const dates = []
-    for (let i = 0; i < period; i++) {
-      const date = new Date()
-      date.setDate(date.getDate() - i - 3)
-      dates.push(date.toISOString().split('T')[0])
+    // 実際に取得できたデータの日付を使用
+    const allDates = new Set()
+    queries.forEach(query => {
+      if (query.history) {
+        Object.keys(query.history).forEach(date => allDates.add(date))
+      }
+    })
+
+    if (allDates.size === 0) {
+      // データがない場合は仮の日付を生成
+      const dates = []
+      for (let i = 0; i < period; i++) {
+        const date = new Date()
+        date.setDate(date.getDate() - i - 2)
+        dates.push(date.toISOString().split('T')[0])
+      }
+      return dates.reverse()
     }
-    return dates
+
+    // 日付を昇順ソート（古い→新しい）して、最新period日分を取得し、逆順にする（最新が左）
+    const sortedDates = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b))
+    const recentDates = sortedDates.slice(-period)
+    return recentDates.reverse() // 最新が左になるように逆順
   }
 
   const getAveragePosition = (query) => {
@@ -198,17 +229,23 @@ function RankTracker() {
     return 100 - normalizedStdDev
   }
 
-  const getPreviousDayPosition = (query) => {
-    const date = new Date()
-    date.setDate(date.getDate() - 4) // 前日（現在は-3なので-4）
-    const prevDate = date.toISOString().split('T')[0]
+  const getPreviousDayPosition = (query, dates) => {
+    // dates配列から前日を取得（dates[0]が最新、dates[1]が前日）
+    if (!dates || dates.length < 2) return null
+    const prevDate = dates[1]
     return query.history[prevDate] || null
   }
 
-  const getDayOverDayChange = (query) => {
-    const current = query.currentPosition
-    const previous = getPreviousDayPosition(query)
-    if (!current || !previous) return null
+  const getDayOverDayChange = (query, dates) => {
+    // dates配列から最新日と前日を取得
+    if (!dates || dates.length < 2) return null
+    const currentDate = dates[0]
+    const prevDate = dates[1]
+
+    const current = query.history[currentDate]
+    const previous = query.history[prevDate]
+
+    if (current == null || previous == null) return null
     return previous - current // 順位が下がる（数値増加）= マイナス, 順位が上がる（数値減少）= プラス
   }
 
@@ -233,7 +270,7 @@ function RankTracker() {
     const allPositions = queries.map(q => ({
       avg: getAveragePosition(q),
       current: q.currentPosition,
-      change: getDayOverDayChange(q),
+      change: getDayOverDayChange(q, dates),
       stability: getStabilityScore(q)
     })).filter(p => p.avg !== null && p.current !== null)
 
@@ -465,10 +502,9 @@ function RankTracker() {
               <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[90px]">安定性<br/>スコア</th>
               <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[80px]">平均順位</th>
               <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[80px]">中央値</th>
-              <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 min-w-[80px]">最新<br/>{currentDate.slice(5)}</th>
-              {dates.map(date => (
+              {dates.map((date, index) => (
                 <th key={date} className="border px-2 py-2 text-center text-xs font-medium text-gray-700 min-w-[60px]">
-                  {date.slice(5)}
+                  {index === 0 ? '最新' : ''}<br/>{date.slice(5)}
                 </th>
               ))}
             </tr>
@@ -476,14 +512,14 @@ function RankTracker() {
           <tbody>
             {queries.length === 0 ? (
               <tr>
-                <td colSpan={8 + dates.length} className="border px-4 py-8 text-center text-gray-500">
+                <td colSpan={6 + dates.length} className="border px-4 py-8 text-center text-gray-500">
                   クエリを追加してください
                 </td>
               </tr>
             ) : (
               queries.map(q => {
                 const stabilityScore = getStabilityScore(q)
-                const dayChange = getDayOverDayChange(q)
+                const dayChange = getDayOverDayChange(q, dates)
 
                 return (
                   <tr key={q.id} className="hover:bg-gray-50">
@@ -518,19 +554,16 @@ function RankTracker() {
                     <td className="border px-4 py-2 text-center font-medium">
                       {getMedianPosition(q) !== null ? getMedianPosition(q).toFixed(1) : '-'}
                     </td>
-                    <td className="border px-4 py-2 text-center font-medium">
-                      <div className="flex flex-col items-center">
-                        <span>{q.currentPosition ? q.currentPosition.toFixed(1) : '-'}</span>
-                        {dayChange !== null && (
-                          <span className={`text-xs ${dayChange > 0 ? 'text-green-600' : dayChange < 0 ? 'text-red-600' : 'text-gray-500'}`}>
-                            {dayChange > 0 ? `↑+${dayChange.toFixed(1)}` : dayChange < 0 ? `↓${dayChange.toFixed(1)}` : '→0'}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    {dates.map(date => (
+                    {dates.map((date, index) => (
                       <td key={date} className="border px-2 py-2 text-center text-sm">
-                        {q.history[date] ? q.history[date].toFixed(1) : '-'}
+                        <div className="flex flex-col items-center">
+                          <span>{q.history[date] ? q.history[date].toFixed(1) : '-'}</span>
+                          {index === 0 && dayChange !== null && (
+                            <span className={`text-xs ${dayChange > 0 ? 'text-green-600' : dayChange < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                              {dayChange > 0 ? `↑+${dayChange.toFixed(1)}` : dayChange < 0 ? `↓${dayChange.toFixed(1)}` : '→0'}
+                            </span>
+                          )}
+                        </div>
                       </td>
                     ))}
                   </tr>

@@ -173,13 +173,17 @@ export default async function handler(req, res) {
             ? data.positions.reduce((sum, pos) => sum + pos, 0) / data.positions.length
             : 0
 
+          // その日のユニーククエリ数を計算
+          const uniqueQueryCount = Object.keys(data.queries).length
+
           return {
             date,
             clicks: data.clicks,
             impressions: data.impressions,
             ctr: data.impressions > 0 ? data.clicks / data.impressions : 0,
             position: avgPosition,
-            topQueries
+            topQueries,
+            uniqueQueryCount
           }
         }).sort((a, b) => new Date(a.date) - new Date(b.date))
 
@@ -202,8 +206,31 @@ export default async function handler(req, res) {
           ? dailyData.reduce((sum, d) => sum + d.position, 0) / dailyData.length
           : 0
 
+        // ページタイトルを取得
+        let pageTitle = ''
+        try {
+          const pageResponse = await fetch(pageUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; GSC-Page-Tracker/1.0)'
+            },
+            signal: AbortSignal.timeout(5000) // 5秒タイムアウト
+          })
+
+          if (pageResponse.ok) {
+            const html = await pageResponse.text()
+            const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
+            pageTitle = titleMatch ? titleMatch[1].trim() : pageUrl.split('/').filter(Boolean).pop() || pageUrl
+          } else {
+            pageTitle = pageUrl.split('/').filter(Boolean).pop() || pageUrl
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch page title for ${pageUrl}:`, error.message)
+          pageTitle = pageUrl.split('/').filter(Boolean).pop() || pageUrl
+        }
+
         results.push({
           pageUrl,
+          pageTitle,
           latestDate: latestData?.date || null,
           latestClicks: latestData?.clicks || 0,
           latestPosition: latestData?.position || 0,
@@ -219,6 +246,7 @@ export default async function handler(req, res) {
         console.error(`Error fetching data for page: ${pageUrl}`, error)
         results.push({
           pageUrl,
+          pageTitle: '',
           latestDate: null,
           latestClicks: 0,
           latestPosition: 0,
