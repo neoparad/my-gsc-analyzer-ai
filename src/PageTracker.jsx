@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Plus, Trash2, RefreshCw, TrendingUp, TrendingDown, FileText, BarChart3, Calendar, Eye, MousePointer } from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Plus, Trash2, RefreshCw, FileText } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { useAuth } from './AuthContext'
 
@@ -11,7 +11,6 @@ function PageTracker() {
   const [loading, setLoading] = useState(false)
   const [period, setPeriod] = useState(30)
   const [error, setError] = useState('')
-  const [selectedPage, setSelectedPage] = useState(null)
 
   // Supabaseからページを読み込む
   useEffect(() => {
@@ -68,7 +67,6 @@ function PageTracker() {
       return
     }
 
-    // 既に登録済みか確認
     if (pages.some(p => p.pageUrl === newPageUrl.trim())) {
       setError('このページは既に登録されています')
       return
@@ -79,14 +77,6 @@ function PageTracker() {
       pageUrl: newPageUrl.trim(),
       siteUrl,
       pageTitle: '',
-      latestDate: null,
-      latestClicks: 0,
-      latestPosition: 0,
-      totalClicks: 0,
-      totalImpressions: 0,
-      avgCtr: 0,
-      avgPosition: 0,
-      topQueries: [],
       dailyData: []
     }
 
@@ -105,9 +95,6 @@ function PageTracker() {
 
       if (response.ok) {
         setPages(pages.filter(p => p.id !== id))
-        if (selectedPage?.id === id) {
-          setSelectedPage(null)
-        }
       } else {
         throw new Error('Failed to delete page')
       }
@@ -143,17 +130,7 @@ function PageTracker() {
         if (pageData) {
           return {
             ...p,
-            latestDate: pageData.latestDate,
-            latestClicks: pageData.latestClicks,
-            latestPosition: pageData.latestPosition,
-            totalClicks: pageData.totalClicks,
-            totalImpressions: pageData.totalImpressions,
-            avgCtr: pageData.avgCtr,
-            avgPosition: pageData.avgPosition,
-            topQueries: pageData.topQueries,
-            dailyData: [...(p.dailyData || []), ...pageData.dailyData].sort((a, b) =>
-              new Date(a.date) - new Date(b.date)
-            )
+            dailyData: pageData.dailyData
           }
         }
         return p
@@ -169,28 +146,79 @@ function PageTracker() {
     }
   }
 
+  // 日付リストを生成（選択された期間分）
+  const dateList = useMemo(() => {
+    if (pages.length === 0 || pages.every(p => !p.dailyData || p.dailyData.length === 0)) {
+      return []
+    }
+
+    // 全ページの全日付を収集
+    const allDates = new Set()
+    pages.forEach(page => {
+      if (page.dailyData) {
+        page.dailyData.forEach(day => {
+          allDates.add(day.date)
+        })
+      }
+    })
+
+    // ソートして返す
+    return Array.from(allDates).sort().slice(-period)
+  }, [pages, period])
+
+  // 全体サマリーデータを計算
+  const summaryData = useMemo(() => {
+    if (dateList.length === 0) return []
+
+    return dateList.map(date => {
+      let totalClicks = 0
+      let totalQueries = 0
+      let positionSum = 0
+      let positionCount = 0
+
+      pages.forEach(page => {
+        const dayData = page.dailyData?.find(d => d.date === date)
+        if (dayData) {
+          totalClicks += dayData.clicks || 0
+          totalQueries += (dayData.topQueries?.length || 0)
+          if (dayData.position > 0) {
+            positionSum += dayData.position
+            positionCount++
+          }
+        }
+      })
+
+      return {
+        date,
+        clicks: totalClicks,
+        queries: totalQueries,
+        avgPosition: positionCount > 0 ? positionSum / positionCount : 0
+      }
+    })
+  }, [pages, dateList])
+
+  // 統計計算関数
+  const calculateStats = (values) => {
+    if (values.length === 0) return { avg: 0, median: 0, latest: 0 }
+
+    const sortedValues = [...values].sort((a, b) => a - b)
+    const avg = values.reduce((sum, v) => sum + v, 0) / values.length
+    const median = sortedValues.length % 2 === 0
+      ? (sortedValues[sortedValues.length / 2 - 1] + sortedValues[sortedValues.length / 2]) / 2
+      : sortedValues[Math.floor(sortedValues.length / 2)]
+    const latest = values[values.length - 1]
+
+    return { avg, median, latest }
+  }
+
   const formatDate = (dateString) => {
     if (!dateString) return '-'
     const date = new Date(dateString)
     return `${date.getMonth() + 1}/${date.getDate()}`
   }
 
-  const getTrend = (dailyData) => {
-    if (!dailyData || dailyData.length < 2) return null
-    const recent = dailyData.slice(-7)
-    const older = dailyData.slice(-14, -7)
-    if (recent.length === 0 || older.length === 0) return null
-
-    const recentAvg = recent.reduce((sum, d) => sum + d.clicks, 0) / recent.length
-    const olderAvg = older.reduce((sum, d) => sum + d.clicks, 0) / older.length
-
-    if (recentAvg > olderAvg * 1.1) return 'up'
-    if (recentAvg < olderAvg * 0.9) return 'down'
-    return 'stable'
-  }
-
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-8 max-w-full mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">GSCページトラッカー</h1>
         <p className="text-gray-600">ページURLを登録して、日次のパフォーマンスを追跡します</p>
@@ -231,20 +259,25 @@ function PageTracker() {
                 </button>
               </div>
             </div>
+          </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">取得期間</label>
-              <select
-                value={period}
-                onChange={(e) => setPeriod(Number(e.target.value))}
-                className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value={7}>7日間</option>
-                <option value={14}>14日間</option>
-                <option value={30}>30日間</option>
-                <option value={60}>60日間</option>
-                <option value={90}>90日間</option>
-              </select>
+          {/* 期間選択ボタン */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">取得期間</label>
+            <div className="flex gap-2">
+              {[30, 60, 90].map(days => (
+                <button
+                  key={days}
+                  onClick={() => setPeriod(days)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    period === days
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {days}日間
+                </button>
+              ))}
             </div>
           </div>
 
@@ -269,211 +302,221 @@ function PageTracker() {
         )}
       </div>
 
-      {/* ページ一覧 */}
-      {pages.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-6">
+      {/* 全体サマリーグラフ */}
+      {summaryData.length > 0 && (
+        <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
+          <h2 className="text-xl font-bold mb-4">全ページ集計サマリー</h2>
+
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-600 mb-1">総クリック数</div>
+              <div className="text-2xl font-bold text-blue-600">
+                {summaryData.reduce((sum, d) => sum + d.clicks, 0).toLocaleString()}
+              </div>
+            </div>
+            <div className="bg-green-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-600 mb-1">総クエリ数</div>
+              <div className="text-2xl font-bold text-green-600">
+                {summaryData.reduce((sum, d) => sum + d.queries, 0).toLocaleString()}
+              </div>
+            </div>
+            <div className="bg-orange-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-600 mb-1">平均順位</div>
+              <div className="text-2xl font-bold text-orange-600">
+                {(summaryData.reduce((sum, d) => sum + d.avgPosition, 0) / summaryData.filter(d => d.avgPosition > 0).length).toFixed(1)}
+              </div>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={summaryData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" tickFormatter={formatDate} />
+              <YAxis yAxisId="left" />
+              <YAxis yAxisId="right" orientation="right" reversed />
+              <Tooltip
+                labelFormatter={formatDate}
+                formatter={(value, name) => {
+                  if (name === 'クリック数' || name === 'クエリ数') return [value.toLocaleString(), name]
+                  if (name === '平均順位') return [value.toFixed(1), name]
+                  return [value, name]
+                }}
+              />
+              <Legend />
+              <Line yAxisId="left" type="monotone" dataKey="clicks" stroke="#3b82f6" name="クリック数" strokeWidth={2} />
+              <Line yAxisId="left" type="monotone" dataKey="queries" stroke="#10b981" name="クエリ数" strokeWidth={2} />
+              <Line yAxisId="right" type="monotone" dataKey="avgPosition" stroke="#f59e0b" name="平均順位" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ページデータテーブル */}
+      {pages.length > 0 && dateList.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ページURL</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">最終更新</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">クリック数</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">平均順位</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">トレンド</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">アクション</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50 min-w-[300px]">
+                    URL / 指標
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[100px]">
+                    平均値
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[100px]">
+                    中央値
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[100px]">
+                    最新
+                  </th>
+                  {dateList.map(date => (
+                    <th key={date} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[80px]">
+                      {formatDate(date)}
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase sticky right-0 bg-gray-50 min-w-[60px]">
+                    削除
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {pages.map((page) => {
-                  const trend = getTrend(page.dailyData)
+                {pages.map((page, pageIndex) => {
+                  // 各指標のデータを収集
+                  const clicksData = dateList.map(date => {
+                    const dayData = page.dailyData?.find(d => d.date === date)
+                    return dayData?.clicks || 0
+                  })
+
+                  const queriesData = dateList.map(date => {
+                    const dayData = page.dailyData?.find(d => d.date === date)
+                    return dayData?.topQueries?.length || 0
+                  })
+
+                  const positionData = dateList.map(date => {
+                    const dayData = page.dailyData?.find(d => d.date === date)
+                    return dayData?.position || 0
+                  }).filter(p => p > 0)
+
+                  const clicksStats = calculateStats(clicksData)
+                  const queriesStats = calculateStats(queriesData)
+                  const positionStats = calculateStats(positionData)
+
+                  const lastUpdate = page.dailyData && page.dailyData.length > 0
+                    ? page.dailyData[page.dailyData.length - 1].date
+                    : null
+
                   return (
-                    <tr
-                      key={page.id}
-                      className="hover:bg-gray-50 cursor-pointer"
-                      onClick={() => setSelectedPage(page)}
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-gray-400" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-900 truncate max-w-md">
-                              {page.pageUrl}
-                            </div>
-                            {page.latestDate && (
-                              <div className="text-xs text-gray-500">
-                                最終: {formatDate(page.latestDate)}
+                    <React.Fragment key={page.id}>
+                      {/* URL/ページ情報行 */}
+                      <tr className="bg-blue-50">
+                        <td className="px-4 py-3 sticky left-0 bg-blue-50 z-10" rowSpan={4}>
+                          <div className="flex items-start gap-2">
+                            <FileText className="w-4 h-4 text-gray-400 mt-1 flex-shrink-0" />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-gray-900 break-all">
+                                {page.pageUrl}
                               </div>
-                            )}
+                              {lastUpdate && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  最終更新: {formatDate(lastUpdate)}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-center text-sm text-gray-900">
-                        {page.latestDate ? formatDate(page.latestDate) : '-'}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className="text-sm font-medium text-gray-900">
-                          {page.totalClicks.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          表示: {page.totalImpressions.toLocaleString()}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className="text-sm font-medium text-gray-900">
-                          {page.avgPosition > 0 ? page.avgPosition.toFixed(1) : '-'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        {trend === 'up' && <TrendingUp className="w-5 h-5 text-green-500 mx-auto" />}
-                        {trend === 'down' && <TrendingDown className="w-5 h-5 text-red-500 mx-auto" />}
-                        {trend === 'stable' && <div className="text-gray-400 text-sm">-</div>}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            deletePage(page.id)
-                          }}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
+                        </td>
+                        <td colSpan={3 + dateList.length} className="px-4 py-2 text-center text-xs font-semibold text-gray-600 bg-blue-50">
+                          ページ #{pageIndex + 1}
+                        </td>
+                        <td className="px-4 py-3 text-center sticky right-0 bg-blue-50 z-10" rowSpan={4}>
+                          <button
+                            onClick={() => deletePage(page.id)}
+                            className="text-red-600 hover:text-red-800 p-1"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+
+                      {/* クリック数行 */}
+                      <tr className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-center font-medium text-blue-600">
+                          {clicksStats.avg.toFixed(0)}
+                        </td>
+                        <td className="px-4 py-2 text-center font-medium text-blue-600">
+                          {clicksStats.median.toFixed(0)}
+                        </td>
+                        <td className="px-4 py-2 text-center font-medium text-blue-600">
+                          {clicksStats.latest.toFixed(0)}
+                        </td>
+                        {dateList.map((date, idx) => (
+                          <td key={date} className="px-4 py-2 text-center text-gray-700">
+                            {clicksData[idx].toLocaleString()}
+                          </td>
+                        ))}
+                      </tr>
+
+                      {/* クエリ数行 */}
+                      <tr className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-center font-medium text-green-600">
+                          {queriesStats.avg.toFixed(0)}
+                        </td>
+                        <td className="px-4 py-2 text-center font-medium text-green-600">
+                          {queriesStats.median.toFixed(0)}
+                        </td>
+                        <td className="px-4 py-2 text-center font-medium text-green-600">
+                          {queriesStats.latest.toFixed(0)}
+                        </td>
+                        {dateList.map((date, idx) => (
+                          <td key={date} className="px-4 py-2 text-center text-gray-700">
+                            {queriesData[idx]}
+                          </td>
+                        ))}
+                      </tr>
+
+                      {/* 平均順位行 */}
+                      <tr className="hover:bg-gray-50 border-b-2 border-gray-300">
+                        <td className="px-4 py-2 text-center font-medium text-orange-600">
+                          {positionData.length > 0 ? positionStats.avg.toFixed(1) : '-'}
+                        </td>
+                        <td className="px-4 py-2 text-center font-medium text-orange-600">
+                          {positionData.length > 0 ? positionStats.median.toFixed(1) : '-'}
+                        </td>
+                        <td className="px-4 py-2 text-center font-medium text-orange-600">
+                          {positionData.length > 0 ? positionStats.latest.toFixed(1) : '-'}
+                        </td>
+                        {dateList.map(date => {
+                          const dayData = page.dailyData?.find(d => d.date === date)
+                          const position = dayData?.position || 0
+                          return (
+                            <td key={date} className="px-4 py-2 text-center text-gray-700">
+                              {position > 0 ? position.toFixed(1) : '-'}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    </React.Fragment>
                   )
                 })}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
 
-      {/* 詳細表示 */}
-      {selectedPage && selectedPage.dailyData && selectedPage.dailyData.length > 0 && (
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h2 className="text-xl font-bold mb-1">ページ詳細</h2>
-              <p className="text-sm text-gray-600 truncate max-w-2xl">{selectedPage.pageUrl}</p>
+          {/* 凡例 */}
+          <div className="px-6 py-4 bg-gray-50 border-t flex gap-6 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-blue-600 rounded"></div>
+              <span>クリック数</span>
             </div>
-            <button
-              onClick={() => setSelectedPage(null)}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* サマリーカード */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <MousePointer className="w-4 h-4 text-blue-600" />
-                <div className="text-sm text-gray-600">総クリック数</div>
-              </div>
-              <div className="text-2xl font-bold text-blue-600">
-                {selectedPage.totalClicks.toLocaleString()}
-              </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-600 rounded"></div>
+              <span>クエリ数</span>
             </div>
-            <div className="bg-green-50 p-4 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <Eye className="w-4 h-4 text-green-600" />
-                <div className="text-sm text-gray-600">総表示回数</div>
-              </div>
-              <div className="text-2xl font-bold text-green-600">
-                {selectedPage.totalImpressions.toLocaleString()}
-              </div>
-            </div>
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <BarChart3 className="w-4 h-4 text-purple-600" />
-                <div className="text-sm text-gray-600">平均CTR</div>
-              </div>
-              <div className="text-2xl font-bold text-purple-600">
-                {(selectedPage.avgCtr * 100).toFixed(2)}%
-              </div>
-            </div>
-            <div className="bg-orange-50 p-4 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <TrendingUp className="w-4 h-4 text-orange-600" />
-                <div className="text-sm text-gray-600">平均順位</div>
-              </div>
-              <div className="text-2xl font-bold text-orange-600">
-                {selectedPage.avgPosition.toFixed(1)}
-              </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-orange-600 rounded"></div>
+              <span>平均順位</span>
             </div>
           </div>
-
-          {/* 日次推移グラフ */}
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-4">クリック数と順位の推移</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={selectedPage.dailyData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(value) => formatDate(value)}
-                />
-                <YAxis yAxisId="left" />
-                <YAxis yAxisId="right" orientation="right" reversed />
-                <Tooltip
-                  labelFormatter={(value) => formatDate(value)}
-                  formatter={(value, name) => {
-                    if (name === 'クリック数') return [value.toLocaleString(), name]
-                    if (name === '順位') return [value.toFixed(1), name]
-                    return [value, name]
-                  }}
-                />
-                <Legend />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="clicks"
-                  stroke="#3b82f6"
-                  name="クリック数"
-                  strokeWidth={2}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="position"
-                  stroke="#f59e0b"
-                  name="順位"
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* トップクエリ */}
-          {selectedPage.topQueries && selectedPage.topQueries.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold mb-4">トップ検索クエリ</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">クエリ</th>
-                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">クリック数</th>
-                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">表示回数</th>
-                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">平均順位</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {selectedPage.topQueries.map((q, index) => (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 text-gray-900">{q.query}</td>
-                        <td className="px-4 py-2 text-center text-gray-900">{q.clicks.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-center text-gray-500">{q.impressions.toLocaleString()}</td>
-                        <td className="px-4 py-2 text-center text-gray-900">{q.avgPosition.toFixed(1)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -481,6 +524,13 @@ function PageTracker() {
         <div className="text-center py-12 text-gray-500">
           <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
           <p>ページURLを追加してください</p>
+        </div>
+      )}
+
+      {pages.length > 0 && dateList.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          <RefreshCw className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+          <p>「最新データを取得」ボタンをクリックしてデータを取得してください</p>
         </div>
       )}
     </div>
