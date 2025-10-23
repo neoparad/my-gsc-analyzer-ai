@@ -59,8 +59,9 @@ export default async function handler(req, res) {
     const searchconsole = google.searchconsole({ version: 'v1', auth: authClient })
 
     // 日付範囲を計算
+    // GSCは通常2-3日前までのデータなので、最新の利用可能な日付を使用
     const endDate = new Date()
-    endDate.setDate(endDate.getDate() - 3) // GSCは3日前までのデータ
+    endDate.setDate(endDate.getDate() - 2) // 2日前まで試す
 
     const startDate = new Date(endDate)
     startDate.setDate(startDate.getDate() - period)
@@ -74,35 +75,42 @@ export default async function handler(req, res) {
 
     for (const query of queries) {
       try {
-        // 比較分析と同じ方法でデータ取得
+        // 特定のクエリだけを取得するためにフィルターを使用
         const requestBody = {
           startDate: formatDate(startDate),
           endDate: formatDate(endDate),
           dimensions: ['query', 'page', 'date'],
+          dimensionFilterGroups: [{
+            filters: [{
+              dimension: 'query',
+              operator: 'equals',
+              expression: query
+            }]
+          }],
           rowLimit: 25000
         }
 
-        console.log(`  Requesting GSC data for "${query}" on ${siteUrl}`)
+        console.log(`  Requesting GSC data for "${query}" on ${siteUrl} (with filter)`)
 
         const response = await searchconsole.searchanalytics.query({
           siteUrl,
           requestBody
         })
 
-        const allRows = response.data.rows || []
+        // APIレベルでフィルターされているので、全ての行が目的のクエリ
+        const rows = response.data.rows || []
 
-        // クエリでフィルタリング（完全一致のみ、全角半角スペース両対応）
-        const normalizedQuery = query.replace(/　/g, ' ').toLowerCase().trim()
+        console.log(`  → Got ${rows.length} rows for "${query}"`)
 
-        const rows = allRows.filter(row => {
-          const rowQuery = row.keys[0]
-          const normalizedRowQuery = rowQuery.replace(/　/g, ' ').toLowerCase().trim()
-
-          // 完全一致のみ
-          return normalizedRowQuery === normalizedQuery
-        })
-
-        console.log(`  → Got ${allRows.length} total rows, ${rows.length} matching "${query}"`)
+        if (rows.length > 0) {
+          console.log(`  → First 3 rows:`, rows.slice(0, 3).map(r => ({
+            query: r.keys[0],
+            page: r.keys[1],
+            date: r.keys[2],
+            position: r.position,
+            clicks: r.clicks
+          })))
+        }
 
         // 日付ごとの順位を計算
         const history = {}
@@ -140,8 +148,26 @@ export default async function handler(req, res) {
           const topPage = rows.sort((a, b) => b.clicks - a.clicks)[0]
           topPageUrl = topPage.keys[1]
 
-          // ページタイトルは別途取得が必要なため、URLのみ返す
-          pageTitle = topPageUrl.split('/').pop() || topPageUrl
+          // ページタイトルを取得
+          try {
+            const pageResponse = await fetch(topPageUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; GSC-Rank-Tracker/1.0)'
+              },
+              signal: AbortSignal.timeout(5000) // 5秒タイムアウト
+            })
+
+            if (pageResponse.ok) {
+              const html = await pageResponse.text()
+              const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
+              pageTitle = titleMatch ? titleMatch[1].trim() : topPageUrl.split('/').filter(Boolean).pop() || topPageUrl
+            } else {
+              pageTitle = topPageUrl.split('/').filter(Boolean).pop() || topPageUrl
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch page title for ${topPageUrl}:`, error.message)
+            pageTitle = topPageUrl.split('/').filter(Boolean).pop() || topPageUrl
+          }
         }
 
         const result = {
@@ -154,6 +180,7 @@ export default async function handler(req, res) {
         }
 
         console.log(`Query "${query}": currentPosition=${currentPosition}, latestDate=${latestAvailableDate}, historyDates=${Object.keys(history).length}`)
+        console.log(`  → History sample:`, Object.entries(history).slice(0, 3))
 
         results.push(result)
 

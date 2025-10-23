@@ -1,146 +1,57 @@
-# Search Console 順位変化分析ツール
+# GSC Ranking Analyzer
 
-Search Console APIを使用して、2つの期間のデータを比較し、順位変化を分析するWebアプリケーションです。
+> Google Search Consoleデータを活用したオールインワンSEO分析プラットフォーム
 
-## 機能
-
-- ✅ Search Console APIからデータ取得
-- ✅ 2期間の順位変化分析（順位上昇/下落/新規獲得/消失）
-- ✅ URLフィルタ・クエリフィルタ機能
-- ✅ 散布図での可視化
-- ✅ ディレクトリ別分析（棒グラフ）
-- ✅ 詳細データテーブル（ページネーション付き）
-- ✅ CSVダウンロード
-- ✅ Googleスプレッドシート自動作成機能
-
-## 技術スタック
-
-- **フロントエンド**: React + Vite + Tailwind CSS
-- **バックエンド**: Python (Vercel Serverless Functions)
-- **API**: Google Search Console API, Google Sheets API
-- **デプロイ**: Vercel
-
-## セットアップ
-
-### 1. プロジェクトのクローン
+## 🚀 クイックスタート
 
 ```bash
-git clone <repository-url>
-cd my-gsc-analyzer
-```
-
-### 2. 依存関係のインストール
-
-```bash
-# Node.js依存関係
+# セットアップ
 npm install
 
-# Python依存関係（ローカル開発用）
-pip install -r requirements.txt
+# 開発サーバー起動
+npm run dev
+
+# テスト実行
+npm run test:audit
 ```
 
-### 3. Google Cloud Console設定
+詳細は [📖 クイックスタートガイド](docs/getting-started/quick-start.md) を参照
 
-1. [Google Cloud Console](https://console.cloud.google.com/)でプロジェクトを作成
-2. 以下のAPIを有効化：
-   - Google Search Console API
-   - Google Sheets API
-   - Google Drive API
-3. サービスアカウントを作成し、JSONキーをダウンロード
-4. Search Consoleで該当サイトにサービスアカウントを追加（表示権限）
+## ✨ 主な機能
 
-### 4. 認証設定
+- **引用分析** - 学術論文や記事の引用データを収集・分析
+- **インデックス分析** - 検索インデックスの最適化と監視
+- **ページトラッキング** - ユーザー行動とページビューの追跡
+- **製品分析** - 製品データの収集と洞察の抽出
+- **AI分析** - Gemini AIによる自動分析と改善提案
 
-#### ローカル開発の場合：
-`credentials/` ディレクトリにサービスアカウントJSONファイルを配置
+## 📚 ドキュメント
 
-#### 本番環境の場合：
-Vercelの環境変数 `GOOGLE_CREDENTIALS` にJSONファイルの内容を設定
+全てのドキュメントは [`docs/`](docs/) フォルダに整理されています：
 
-### 5. ローカル開発サーバー起動
+| カテゴリ | 説明 |
+|---------|------|
+| [🚀 はじめに](docs/getting-started/) | 環境構築とクイックスタート |
+| [✨ 機能](docs/features/) | 各機能の詳細仕様 |
+| [🧪 テスト](docs/testing/) | テスト戦略とガイド |
+| [🏗️ インフラ](docs/infrastructure/) | データベースとデプロイ設定 |
+| [🏛️ アーキテクチャ](docs/architecture/) | システム設計と構成 |
 
-```bash
-# Vercel開発サーバー（推奨）
-npx vercel dev
+**👉 まずは [docs/README.md](docs/README.md) をご覧ください**
 
-# または別々に起動
-npm run dev  # フロントエンド
-vercel dev   # バックエンド（別ターミナル）
-```
+## 🛠️ 技術スタック
 
-### 6. Vercelへのデプロイ
+- **フロントエンド**: React 18 + Vite + Tailwind CSS
+- **バックエンド**: Vercel Serverless Functions
+- **データベース**: Supabase (PostgreSQL)
+- **テスト**: Playwright
+- **AI**: Google Gemini API
+- **その他**: Google Search Console API, Google Sheets API
 
-```bash
-# Vercel CLIでログイン
-npx vercel login
+## 🤝 コントリビューション
 
-# 環境変数を設定（Vercelダッシュボードまたは CLI）
-vercel env add GOOGLE_CREDENTIALS
+[CONTRIBUTING.md](docs/development/contributing.md) をご確認ください
 
-# デプロイ
-npx vercel --prod
-```
-
-## 使用方法
-
-1. **サイトURL入力**: Search Consoleに登録済みのサイトURLを入力
-2. **期間設定**: 過去期間と現在期間を設定
-3. **フィルタ設定** (オプション): URLフィルタ、クエリフィルタを設定
-4. **分析実行**: 「分析を開始」ボタンをクリック
-5. **結果確認**: タブ切り替えで改善/悪化データを確認
-6. **データ出力**: CSVダウンロードまたはスプレッドシート作成
-
-## API仕様
-
-### POST /api/analyze
-
-順位変化分析を実行
-
-**リクエストボディ:**
-```json
-{
-  "site_url": "https://example.com/",
-  "past_start": "2024-01-01",
-  "past_end": "2024-01-31",
-  "current_start": "2024-02-01",
-  "current_end": "2024-02-28",
-  "url_filter": "/category/",
-  "query_filter": "検索キーワード"
-}
-```
-
-### POST /api/create_sheet
-
-Googleスプレッドシートを作成
-
-**リクエストボディ:**
-```json
-{
-  "data": [["列1", "列2"], ["データ1", "データ2"]],
-  "title": "スプレッドシートタイトル"
-}
-```
-
-## 注意事項
-
-- サービスアカウントJSONファイルはGitにコミットしないでください
-- Search Console APIには利用制限があります
-- 大量データの分析には時間がかかる場合があります
-
-## トラブルシューティング
-
-### 認証エラー
-- サービスアカウントがSearch Consoleサイトに追加されているか確認
-- 環境変数 `GOOGLE_CREDENTIALS` が正しく設定されているか確認
-
-### データ取得エラー
-- サイトURLが正確か確認（最後のスラッシュを含む）
-- 指定期間にデータが存在するか確認
-
-### パフォーマンス問題
-- フィルタを使用してデータ量を制限
-- 散布図表示は最大500点まで
-
-## ライセンス
+## 📄 ライセンス
 
 MIT License

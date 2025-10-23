@@ -315,5 +315,5 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
 問題が解決しない場合:
 1. GitHub Issuesで報告
-2. `CURRENT_STATUS.md`を確認
+2. プロジェクトの現在の状況を確認
 3. ログを確認（ブラウザのDevToolsコンソール）

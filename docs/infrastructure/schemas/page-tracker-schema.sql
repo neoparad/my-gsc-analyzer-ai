@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS page_tracker_daily (
   ctr FLOAT DEFAULT 0,
   position FLOAT DEFAULT 0,
   top_queries JSONB DEFAULT '[]'::jsonb,
-  unique_query_count INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(page_id, date)
 );
@@ -34,11 +33,17 @@ CREATE INDEX IF NOT EXISTS idx_page_tracker_pages_page_url ON page_tracker_pages
 CREATE INDEX IF NOT EXISTS idx_page_tracker_daily_page_date ON page_tracker_daily(page_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_page_tracker_daily_date ON page_tracker_daily(date DESC);
 
--- RLS (Row Level Security) を有効化
+-- RLS (Row Level Security) を有効化（オプション）
 ALTER TABLE page_tracker_pages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE page_tracker_daily ENABLE ROW LEVEL SECURITY;
 
--- 全てのユーザーがアクセス可能（Basic認証を使用している場合）
+-- 全てのユーザーが自分のデータにアクセス可能（認証を使う場合）
+-- CREATE POLICY "Users can view their own pages" ON page_tracker_pages FOR SELECT USING (auth.uid()::text = user_id);
+-- CREATE POLICY "Users can insert their own pages" ON page_tracker_pages FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+-- CREATE POLICY "Users can update their own pages" ON page_tracker_pages FOR UPDATE USING (auth.uid()::text = user_id);
+-- CREATE POLICY "Users can delete their own pages" ON page_tracker_pages FOR DELETE USING (auth.uid()::text = user_id);
+
+-- 簡易版: 全てのユーザーがアクセス可能（Basic認証を使用している場合）
 CREATE POLICY "Anyone can access page_tracker_pages" ON page_tracker_pages FOR ALL USING (true);
 CREATE POLICY "Anyone can access page_tracker_daily" ON page_tracker_daily FOR ALL USING (true);
 

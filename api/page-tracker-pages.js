@@ -17,36 +17,45 @@ export default async function handler(req, res) {
     // GET: ページ一覧を取得
     if (req.method === 'GET') {
       const { userId, siteUrl } = req.query
+      console.log('[GET] Params:', { userId, siteUrl })
 
       if (!userId || !siteUrl) {
+        console.error('[GET] Missing required params')
         return res.status(400).json({ error: 'userId and siteUrl are required' })
       }
 
       const pages = await getPages(userId, siteUrl)
+      console.log('[GET] Success, pages count:', pages.length)
       return res.status(200).json({ pages })
     }
 
     // POST: ページを保存
     if (req.method === 'POST') {
       const { userId, siteUrl, pages } = req.body
+      console.log('[POST] Params:', { userId, siteUrl, pagesCount: pages?.length })
 
       if (!userId || !siteUrl || !pages) {
+        console.error('[POST] Missing required params')
         return res.status(400).json({ error: 'userId, siteUrl, and pages are required' })
       }
 
       const results = await savePages(userId, siteUrl, pages)
+      console.log('[POST] Success, results:', results)
       return res.status(200).json({ success: true, results })
     }
 
     // DELETE: ページを削除
     if (req.method === 'DELETE') {
       const { pageId } = req.body
+      console.log('[DELETE] PageId:', pageId)
 
       if (!pageId) {
+        console.error('[DELETE] Missing pageId')
         return res.status(400).json({ error: 'pageId is required' })
       }
 
       await deletePage(pageId)
+      console.log('[DELETE] Success')
       return res.status(200).json({ success: true })
     }
 
@@ -54,9 +63,11 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Page Tracker Pages API Error:', error)
+    console.error('Error stack:', error.stack)
     res.status(500).json({
       error: 'ページ管理の処理に失敗しました',
-      details: error.message
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     })
   }
 }
