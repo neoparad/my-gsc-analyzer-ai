@@ -22,6 +22,7 @@ function PageTracker() {
         const data = await response.json()
 
         if (response.ok && data.pages) {
+          // dailyDataも含めて復元
           setPages(data.pages)
         }
       } catch (e) {
@@ -128,9 +129,18 @@ function PageTracker() {
       const updatedPages = pages.map(p => {
         const pageData = data.results.find(r => r.pageUrl === p.pageUrl)
         if (pageData) {
+          // 既存のdailyDataと新規データをマージ（重複排除）
+          const existingDataMap = new Map((p.dailyData || []).map(d => [d.date, d]))
+          pageData.dailyData.forEach(d => {
+            existingDataMap.set(d.date, d)
+          })
+          const mergedData = Array.from(existingDataMap.values()).sort((a, b) =>
+            new Date(a.date) - new Date(b.date)
+          )
+
           return {
             ...p,
-            dailyData: pageData.dailyData
+            dailyData: mergedData
           }
         }
         return p
@@ -146,13 +156,12 @@ function PageTracker() {
     }
   }
 
-  // 日付リストを生成（選択された期間分）
+  // 日付リストを生成（最新が左、過去が右）
   const dateList = useMemo(() => {
     if (pages.length === 0 || pages.every(p => !p.dailyData || p.dailyData.length === 0)) {
       return []
     }
 
-    // 全ページの全日付を収集
     const allDates = new Set()
     pages.forEach(page => {
       if (page.dailyData) {
@@ -162,15 +171,18 @@ function PageTracker() {
       }
     })
 
-    // ソートして返す
-    return Array.from(allDates).sort().slice(-period)
+    // ソートして最新period日分を取得し、逆順にする（最新が左）
+    return Array.from(allDates).sort().slice(-period).reverse()
   }, [pages, period])
 
   // 全体サマリーデータを計算
   const summaryData = useMemo(() => {
     if (dateList.length === 0) return []
 
-    return dateList.map(date => {
+    // 逆順（古い順）にしてグラフ表示用
+    const sortedDates = [...dateList].reverse()
+
+    return sortedDates.map(date => {
       let totalClicks = 0
       let totalQueries = 0
       let positionSum = 0
@@ -197,20 +209,6 @@ function PageTracker() {
     })
   }, [pages, dateList])
 
-  // 統計計算関数
-  const calculateStats = (values) => {
-    if (values.length === 0) return { avg: 0, median: 0, latest: 0 }
-
-    const sortedValues = [...values].sort((a, b) => a - b)
-    const avg = values.reduce((sum, v) => sum + v, 0) / values.length
-    const median = sortedValues.length % 2 === 0
-      ? (sortedValues[sortedValues.length / 2 - 1] + sortedValues[sortedValues.length / 2]) / 2
-      : sortedValues[Math.floor(sortedValues.length / 2)]
-    const latest = values[values.length - 1]
-
-    return { avg, median, latest }
-  }
-
   const formatDate = (dateString) => {
     if (!dateString) return '-'
     const date = new Date(dateString)
@@ -224,10 +222,11 @@ function PageTracker() {
         <p className="text-gray-600">ページURLを登録して、日次のパフォーマンスを追跡します</p>
       </div>
 
-      {/* 設定エリア */}
+      {/* 設定エリア - GSCランクトラッカーと同じレイアウト */}
       <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
-        <div className="space-y-4">
-          <div>
+        <div className="grid grid-cols-12 gap-4 items-end">
+          {/* サイトURL */}
+          <div className="col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-2">サイトURL</label>
             <input
               type="text"
@@ -238,65 +237,68 @@ function PageTracker() {
             />
           </div>
 
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2">ページURLを追加</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newPageUrl}
-                  onChange={(e) => setNewPageUrl(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addPage()}
-                  className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://example.com/page/"
-                />
-                <button
-                  onClick={addPage}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  追加
-                </button>
-              </div>
+          {/* ページURLを追加 */}
+          <div className="col-span-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">ページURLを追加</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newPageUrl}
+                onChange={(e) => setNewPageUrl(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addPage()}
+                className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="https://example.com/page/"
+              />
+              <button
+                onClick={addPage}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1 whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                追加
+              </button>
             </div>
           </div>
 
-          {/* 期間選択ボタン */}
-          <div>
+          {/* 期間選択 */}
+          <div className="col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-2">取得期間</label>
             <div className="flex gap-2">
               {[30, 60, 90].map(days => (
                 <button
                   key={days}
                   onClick={() => setPeriod(days)}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  className={`flex-1 px-3 py-2 rounded-lg font-medium transition-colors text-sm ${
                     period === days
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  {days}日間
+                  {days}日
                 </button>
               ))}
             </div>
           </div>
 
-          <button
-            onClick={fetchLatestData}
-            disabled={loading || pages.length === 0}
-            className={`w-full py-3 rounded-lg flex items-center justify-center gap-2 ${
-              loading || pages.length === 0
-                ? 'bg-gray-300 cursor-not-allowed'
-                : 'bg-green-600 hover:bg-green-700 text-white'
-            }`}
-          >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? '取得中...' : '最新データを取得'}
-          </button>
+          {/* 取得ボタン */}
+          <div className="col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2 opacity-0">取得</label>
+            <button
+              onClick={fetchLatestData}
+              disabled={loading || pages.length === 0}
+              className={`w-full py-2 rounded-lg flex items-center justify-center gap-2 ${
+                loading || pages.length === 0
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-green-600 hover:bg-green-700 text-white'
+              }`}
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? '取得中' : '最新データ取得'}
+            </button>
+          </div>
         </div>
 
         {error && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
             {error}
           </div>
         )}
@@ -362,12 +364,6 @@ function PageTracker() {
                     URL / 指標
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[100px]">
-                    平均値
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[100px]">
-                    中央値
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[100px]">
                     最新
                   </th>
                   {dateList.map(date => (
@@ -382,7 +378,7 @@ function PageTracker() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {pages.map((page, pageIndex) => {
-                  // 各指標のデータを収集
+                  // 各指標のデータを収集（最新が左なので順序はdateListのまま）
                   const clicksData = dateList.map(date => {
                     const dayData = page.dailyData?.find(d => d.date === date)
                     return dayData?.clicks || 0
@@ -396,11 +392,7 @@ function PageTracker() {
                   const positionData = dateList.map(date => {
                     const dayData = page.dailyData?.find(d => d.date === date)
                     return dayData?.position || 0
-                  }).filter(p => p > 0)
-
-                  const clicksStats = calculateStats(clicksData)
-                  const queriesStats = calculateStats(queriesData)
-                  const positionStats = calculateStats(positionData)
+                  })
 
                   const lastUpdate = page.dailyData && page.dailyData.length > 0
                     ? page.dailyData[page.dailyData.length - 1].date
@@ -425,7 +417,7 @@ function PageTracker() {
                             </div>
                           </div>
                         </td>
-                        <td colSpan={3 + dateList.length} className="px-4 py-2 text-center text-xs font-semibold text-gray-600 bg-blue-50">
+                        <td colSpan={1 + dateList.length} className="px-4 py-2 text-center text-xs font-semibold text-gray-600 bg-blue-50">
                           ページ #{pageIndex + 1}
                         </td>
                         <td className="px-4 py-3 text-center sticky right-0 bg-blue-50 z-10" rowSpan={4}>
@@ -441,17 +433,11 @@ function PageTracker() {
                       {/* クリック数行 */}
                       <tr className="hover:bg-gray-50">
                         <td className="px-4 py-2 text-center font-medium text-blue-600">
-                          {clicksStats.avg.toFixed(0)}
+                          {clicksData[0]?.toLocaleString() || 0}
                         </td>
-                        <td className="px-4 py-2 text-center font-medium text-blue-600">
-                          {clicksStats.median.toFixed(0)}
-                        </td>
-                        <td className="px-4 py-2 text-center font-medium text-blue-600">
-                          {clicksStats.latest.toFixed(0)}
-                        </td>
-                        {dateList.map((date, idx) => (
-                          <td key={date} className="px-4 py-2 text-center text-gray-700">
-                            {clicksData[idx].toLocaleString()}
+                        {clicksData.map((clicks, idx) => (
+                          <td key={idx} className="px-4 py-2 text-center text-gray-700">
+                            {clicks.toLocaleString()}
                           </td>
                         ))}
                       </tr>
@@ -459,17 +445,11 @@ function PageTracker() {
                       {/* クエリ数行 */}
                       <tr className="hover:bg-gray-50">
                         <td className="px-4 py-2 text-center font-medium text-green-600">
-                          {queriesStats.avg.toFixed(0)}
+                          {queriesData[0] || 0}
                         </td>
-                        <td className="px-4 py-2 text-center font-medium text-green-600">
-                          {queriesStats.median.toFixed(0)}
-                        </td>
-                        <td className="px-4 py-2 text-center font-medium text-green-600">
-                          {queriesStats.latest.toFixed(0)}
-                        </td>
-                        {dateList.map((date, idx) => (
-                          <td key={date} className="px-4 py-2 text-center text-gray-700">
-                            {queriesData[idx]}
+                        {queriesData.map((queries, idx) => (
+                          <td key={idx} className="px-4 py-2 text-center text-gray-700">
+                            {queries}
                           </td>
                         ))}
                       </tr>
@@ -477,23 +457,13 @@ function PageTracker() {
                       {/* 平均順位行 */}
                       <tr className="hover:bg-gray-50 border-b-2 border-gray-300">
                         <td className="px-4 py-2 text-center font-medium text-orange-600">
-                          {positionData.length > 0 ? positionStats.avg.toFixed(1) : '-'}
+                          {positionData[0] > 0 ? positionData[0].toFixed(1) : '-'}
                         </td>
-                        <td className="px-4 py-2 text-center font-medium text-orange-600">
-                          {positionData.length > 0 ? positionStats.median.toFixed(1) : '-'}
-                        </td>
-                        <td className="px-4 py-2 text-center font-medium text-orange-600">
-                          {positionData.length > 0 ? positionStats.latest.toFixed(1) : '-'}
-                        </td>
-                        {dateList.map(date => {
-                          const dayData = page.dailyData?.find(d => d.date === date)
-                          const position = dayData?.position || 0
-                          return (
-                            <td key={date} className="px-4 py-2 text-center text-gray-700">
-                              {position > 0 ? position.toFixed(1) : '-'}
-                            </td>
-                          )
-                        })}
+                        {positionData.map((position, idx) => (
+                          <td key={idx} className="px-4 py-2 text-center text-gray-700">
+                            {position > 0 ? position.toFixed(1) : '-'}
+                          </td>
+                        ))}
                       </tr>
                     </React.Fragment>
                   )
@@ -530,7 +500,7 @@ function PageTracker() {
       {pages.length > 0 && dateList.length === 0 && (
         <div className="text-center py-12 text-gray-500">
           <RefreshCw className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-          <p>「最新データを取得」ボタンをクリックしてデータを取得してください</p>
+          <p>「最新データ取得」ボタンをクリックしてデータを取得してください</p>
         </div>
       )}
     </div>
