@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, BarChart3, PieChart, TrendingUp, FolderKanban, Activity, Zap, Target, HelpCircle, Search, LogOut, Code, Link2 } from 'lucide-react'
+import { MessageSquare, BarChart3, PieChart, TrendingUp, FolderKanban, Activity, Zap, Target, HelpCircle, Search, LogOut, Code, Link2, FileText } from 'lucide-react'
 import { useAuth } from './AuthContext'
 
 function Sidebar() {
@@ -10,6 +10,7 @@ function Sidebar() {
   const menuItems = [
     { path: '/', icon: MessageSquare, label: 'サーチコンソールAI' },
     { path: '/rank-tracker', icon: TrendingUp, label: 'GSCランクトラッカー' },
+    { path: '/page-tracker', icon: FileText, label: 'GSCページトラッカー' },
     { path: '/comparison', icon: BarChart3, label: '比較分析' },
     { path: '/directory-analysis', icon: FolderKanban, label: 'ディレクトリアクセス分析' },
     { path: '/query-rank-share', icon: PieChart, label: 'クエリ順位シェア分析' },

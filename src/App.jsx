@@ -5,6 +5,7 @@ import ChatAI from './ChatAI'
 import ComparisonPage from './ComparisonPage'
 import QueryRankShare from './QueryRankShare'
 import RankTracker from './RankTracker'
+import PageTracker from './PageTracker'
 import DirectoryAnalysis from './DirectoryAnalysis'
 import BrandAnalysis from './BrandAnalysis'
 import PageSpeedAnalysisV2 from './PageSpeedAnalysisV2'
@@ -32,6 +33,7 @@ function App() {
                   <Route path="/comparison" element={<ComparisonPage />} />
                   <Route path="/query-rank-share" element={<QueryRankShare />} />
                   <Route path="/rank-tracker" element={<RankTracker />} />
+                  <Route path="/page-tracker" element={<PageTracker />} />
                   <Route path="/directory-analysis" element={<DirectoryAnalysis />} />
                   <Route path="/brand-analysis" element={<BrandAnalysis />} />
                   <Route path="/pagespeed-analysis" element={<PageSpeedAnalysisV2 />} />
