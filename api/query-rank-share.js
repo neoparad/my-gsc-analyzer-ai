@@ -65,6 +65,12 @@ export default async function handler(req, res) {
     console.log(`📊 Fetching query rank share data from ${formatDate(start)} to ${formatDate(end)}`)
 
     const allQueryData = {}
+    const directoryQueryData = {} // ディレクトリごとのクエリデータ
+
+    // ディレクトリごとのデータ構造を初期化
+    directories.forEach(dir => {
+      directoryQueryData[dir] = {}
+    })
 
     // 月ごとにデータ取得
     const currentMonth = new Date(start)
@@ -85,6 +91,8 @@ export default async function handler(req, res) {
 
       for (const dir of directories) {
         let dirStartRow = 0
+        let dirRows = []
+
         while (true) {
           const requestBody = {
             startDate: formatDate(monthStart),
@@ -109,6 +117,7 @@ export default async function handler(req, res) {
           const rows = response.data.rows || []
           if (rows.length === 0) break
 
+          dirRows = dirRows.concat(rows)
           monthRows = monthRows.concat(rows)
 
           if (rows.length < rowLimit) break
@@ -116,11 +125,23 @@ export default async function handler(req, res) {
 
           await new Promise(resolve => setTimeout(resolve, 50))
         }
+
+        // ディレクトリごとにクエリデータを保存
+        dirRows.forEach(row => {
+          const query = row.keys[0]
+          const position = row.position || 100
+
+          const key = `${yearMonth}:${query}`
+          if (!directoryQueryData[dir][key]) {
+            directoryQueryData[dir][key] = []
+          }
+          directoryQueryData[dir][key].push(position)
+        })
       }
 
       console.log(`    → Got ${monthRows.length} rows for ${yearMonth}`)
 
-      // クエリごとの平均順位計算（APIフィルタ済みデータ）
+      // 全体のクエリごとの平均順位計算（APIフィルタ済みデータ）
       monthRows.forEach(row => {
         const query = row.keys[0]
         const position = row.position || 100
@@ -290,7 +311,140 @@ export default async function handler(req, res) {
       })
     })
 
-    res.status(200).json({ chartData, tableData })
+    // ディレクトリごとの順位シェアデータを生成
+    const directoryRankData = {}
+
+    directories.forEach(dir => {
+      // ディレクトリごとの平均順位を計算して順位範囲別に集計
+      const dirMonthlyData = {}
+      Object.keys(directoryQueryData[dir]).forEach(key => {
+        const [yearMonth, query] = key.split(':')
+        const positions = directoryQueryData[dir][key]
+
+        // 平均順位を計算
+        const avgPosition = positions.reduce((sum, pos) => sum + pos, 0) / positions.length
+        const rankRange = getRankRange(avgPosition)
+
+        if (!dirMonthlyData[yearMonth]) {
+          dirMonthlyData[yearMonth] = {}
+          rankRanges.forEach(range => {
+            dirMonthlyData[yearMonth][range] = new Set()
+          })
+        }
+
+        dirMonthlyData[yearMonth][rankRange].add(query)
+      })
+
+      // チャートデータを生成（100%積み上げ用）
+      const dirChartData = periods.map(period => {
+        const dataPoint = { period }
+        let totalQueries = 0
+        const queryCounts = {}
+
+        if (viewMode === 'monthly') {
+          const monthData = dirMonthlyData[period]
+          if (monthData) {
+            rankRanges.forEach(range => {
+              const count = monthData[range] ? monthData[range].size : 0
+              queryCounts[range] = count
+              totalQueries += count
+            })
+          }
+        } else {
+          // 四半期集計
+          const [year, q] = period.split('-Q')
+          const quarterStart = (parseInt(q) - 1) * 3 + 1
+          const allQueries = {}
+          rankRanges.forEach(range => allQueries[range] = new Set())
+
+          for (let m = 0; m < 3; m++) {
+            const month = quarterStart + m
+            const monthKey = `${year}-${String(month).padStart(2, '0')}`
+            const monthData = dirMonthlyData[monthKey]
+            if (monthData) {
+              rankRanges.forEach(range => {
+                if (monthData[range]) {
+                  monthData[range].forEach(q => allQueries[range].add(q))
+                }
+              })
+            }
+          }
+
+          rankRanges.forEach(range => {
+            const count = allQueries[range].size
+            queryCounts[range] = count
+            totalQueries += count
+          })
+        }
+
+        // パーセンテージに変換
+        rankRanges.forEach(range => {
+          dataPoint[range] = totalQueries > 0 ? (queryCounts[range] / totalQueries) * 100 : 0
+        })
+
+        return dataPoint
+      })
+
+      // テーブルデータを生成
+      const dirTableData = []
+      periods.forEach(period => {
+        let totalQueries = 0
+        const queryCounts = {}
+
+        if (viewMode === 'monthly') {
+          const monthData = dirMonthlyData[period]
+          if (monthData) {
+            rankRanges.forEach(range => {
+              queryCounts[range] = monthData[range] ? monthData[range].size : 0
+              totalQueries += queryCounts[range]
+            })
+          }
+        } else {
+          // 四半期集計
+          const [year, q] = period.split('-Q')
+          const quarterStart = (parseInt(q) - 1) * 3 + 1
+          const allQueries = {}
+          rankRanges.forEach(range => allQueries[range] = new Set())
+
+          for (let m = 0; m < 3; m++) {
+            const month = quarterStart + m
+            const monthKey = `${year}-${String(month).padStart(2, '0')}`
+            const monthData = dirMonthlyData[monthKey]
+            if (monthData) {
+              rankRanges.forEach(range => {
+                if (monthData[range]) {
+                  monthData[range].forEach(q => allQueries[range].add(q))
+                }
+              })
+            }
+          }
+
+          rankRanges.forEach(range => {
+            queryCounts[range] = allQueries[range].size
+            totalQueries += queryCounts[range]
+          })
+        }
+
+        rankRanges.forEach(range => {
+          const queryCount = queryCounts[range] || 0
+          const shareRate = totalQueries > 0 ? (queryCount / totalQueries) * 100 : 0
+
+          dirTableData.push({
+            period,
+            rankRange: range,
+            queryCount,
+            shareRate
+          })
+        })
+      })
+
+      directoryRankData[dir] = {
+        chartData: dirChartData,
+        tableData: dirTableData
+      }
+    })
+
+    res.status(200).json({ chartData, tableData, directoryRankData })
 
   } catch (error) {
     console.error('Query Rank Share API Error:', error)

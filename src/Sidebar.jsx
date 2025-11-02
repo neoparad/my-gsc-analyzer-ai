@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, BarChart3, PieChart, TrendingUp, FolderKanban, Activity, Zap, Target, HelpCircle, Search, LogOut, Code, Link2, FileText } from 'lucide-react'
+import { MessageSquare, BarChart3, TrendingUp, Activity, Zap, Target, HelpCircle, Search, LogOut, Code, Link2, FileText, Layers } from 'lucide-react'
 import { useAuth } from './AuthContext'
 
 function Sidebar() {
@@ -12,8 +12,7 @@ function Sidebar() {
     { path: '/rank-tracker', icon: TrendingUp, label: 'GSCランクトラッカー' },
     { path: '/page-tracker', icon: FileText, label: 'GSCページトラッカー' },
     { path: '/comparison', icon: BarChart3, label: '比較分析' },
-    { path: '/directory-analysis', icon: FolderKanban, label: 'ディレクトリアクセス分析' },
-    { path: '/query-rank-share', icon: PieChart, label: 'クエリ順位シェア分析' },
+    { path: '/directory-query-analysis', icon: Layers, label: 'ディレクトリ×順位シェア' },
     { path: '/brand-analysis', icon: Activity, label: 'ブランドキーワード分析' },
     { path: '/citation-analysis', icon: Link2, label: 'サイテーション分析' },
     { path: '/ads-cannibalization', icon: Target, label: 'SEO VS 広告比較' },
