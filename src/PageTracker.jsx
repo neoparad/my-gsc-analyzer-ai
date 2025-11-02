@@ -359,15 +359,15 @@ function PageTracker() {
           {/* 期間選択 */}
           <div className="col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-2">取得期間</label>
-            <div className="flex gap-2">
-              {[30, 60, 90].map(days => (
+            <div className="grid grid-cols-6 gap-1 border border-gray-300 rounded p-1">
+              {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360].map(days => (
                 <button
                   key={days}
                   onClick={() => setPeriod(days)}
-                  className={`flex-1 px-3 py-2 rounded-lg font-medium transition-colors text-sm ${
+                  className={`px-2 py-1.5 text-xs rounded transition-colors ${
                     period === days
                       ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      : 'bg-white text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   {days}日

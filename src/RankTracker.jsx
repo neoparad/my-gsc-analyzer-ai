@@ -386,12 +386,12 @@ function RankTracker() {
               最新順位を取得
             </button>
 
-            <div className="flex border border-gray-300 rounded overflow-hidden">
-              {[30, 60, 90].map(p => (
+            <div className="grid grid-cols-6 gap-1 border border-gray-300 rounded p-1">
+              {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360].map(p => (
                 <button
                   key={p}
                   onClick={() => setPeriod(p)}
-                  className={`px-3 py-2 text-sm ${
+                  className={`px-2 py-1.5 text-xs rounded transition-colors ${
                     period === p
                       ? 'bg-blue-600 text-white'
                       : 'bg-white text-gray-700 hover:bg-gray-100'
