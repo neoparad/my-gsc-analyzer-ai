@@ -30,7 +30,13 @@ function Login() {
         throw new Error(data.error || 'ログインに失敗しました')
       }
 
-      login(data.token, data.username)
+      // マルチユーザー対応: userオブジェクトが返される
+      if (data.user) {
+        login(data.token, data.user)
+      } else {
+        // 後方互換性: 旧形式の場合
+        login(data.token, { username: data.username })
+      }
       navigate('/')
     } catch (err) {
       setError(err.message)
