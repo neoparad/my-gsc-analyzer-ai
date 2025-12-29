@@ -1,20 +1,20 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
-  "functions": {
-    "api/**/*.js": {
-      "maxDuration": 300
-    }
-  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/api/user-sites/:id",
+      "destination": "/api/user-sites/[id]"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/api/users/:id",
+      "destination": "/api/users/[id]"
+    },
+    {
+      "source": "/api/users/:id/password",
+      "destination": "/api/users/[id]/password"
+    },
+    {
+      "source": "/api/gsc-sync/jobs/:jobId",
+      "destination": "/api/gsc-sync/jobs/[jobId]"
     }
   ]
 }
