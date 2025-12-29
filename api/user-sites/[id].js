@@ -79,24 +79,48 @@ export default async function handler(req, res) {
     if (req.method === 'DELETE') {
       const isAdmin = req.user.role === 'admin'
 
-      // 管理者は全サイト削除可能、一般ユーザーは自分のサイトのみ
-      let query = supabase
+      console.log('[DELETE Site] Request:', {
+        siteId: id,
+        userId: userId,
+        userRole: req.user.role,
+        isAdmin: isAdmin
+      })
+
+      // まず削除対象のサイトを確認
+      let checkQuery = supabase
+        .from('user_sites')
+        .select('*')
+        .eq('id', id)
+
+      if (!isAdmin) {
+        checkQuery = checkQuery.eq('user_id', userId)
+      }
+
+      const { data: existingData, error: checkError } = await checkQuery.single()
+
+      console.log('[DELETE Site] Check result:', { existingData, checkError })
+
+      if (checkError || !existingData) {
+        console.log('[DELETE Site] Site not found or no permission')
+        return res.status(404).json({
+          error: 'サイトが見つからないか、削除権限がありません',
+          debug: { siteId: id, userId, isAdmin }
+        })
+      }
+
+      // 削除を実行
+      const { error: deleteError } = await supabase
         .from('user_sites')
         .delete()
         .eq('id', id)
 
-      if (!isAdmin) {
-        query = query.eq('user_id', userId)
+      if (deleteError) {
+        console.error('Error deleting site:', deleteError)
+        return res.status(500).json({ error: 'サイトの削除に失敗しました', details: deleteError.message })
       }
 
-      const { error } = await query
-
-      if (error) {
-        console.error('Error deleting site:', error)
-        return res.status(500).json({ error: 'サイトの削除に失敗しました' })
-      }
-
-      return res.status(200).json({ success: true })
+      console.log('[DELETE Site] Successfully deleted:', existingData)
+      return res.status(200).json({ success: true, deleted: existingData })
     }
 
     res.status(405).json({ error: 'Method not allowed' })
