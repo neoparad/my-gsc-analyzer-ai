@@ -1,11 +1,9 @@
 import { google } from 'googleapis'
-import { checkBasicAuth } from '../lib/auth.js'
+import { verifyToken } from '../lib/auth-middleware.js'
+import { getGoogleCredentials } from '../lib/google-credentials.js'
+import { canUserAccessSite, getAccountIdForSite } from '../lib/user-sites.js'
 
 export default async function handler(req, res) {
-  // Basic認証チェック
-  if (!checkBasicAuth(req, res)) {
-    return
-  }
 
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -22,31 +20,50 @@ export default async function handler(req, res) {
     return
   }
 
-  try {
-    const { site_url, past_start, past_end, current_start, current_end, url_filter, query_filter, exclude_queries } = req.body
+  // JWT認証チェック
+  const authResult = verifyToken(req, res)
+  if (authResult !== true) {
+    return // エラーレスポンスは既に送信済み
+  }
 
-    // 環境変数から認証情報を取得（本番環境では必須）
+  try {
+    const { site_url, past_start, past_end, current_start, current_end, url_filter, query_filter, exclude_queries, accountId: requestAccountId } = req.body
+
+    if (!site_url) {
+      return res.status(400).json({ error: 'site_urlは必須です' })
+    }
+
+    // ユーザーがこのサイトにアクセス可能かチェック
+    const userRole = req.user.role || 'user'
+    const hasAccess = await canUserAccessSite(req.user.userId, site_url, userRole)
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'このサイトにアクセスする権限がありません' })
+    }
+
+    // ユーザーのサイト設定からサービスアカウントIDを取得
+    const dbAccountId = await getAccountIdForSite(req.user.userId, site_url, userRole)
+    
+    // リクエストボディのaccountIdを優先（フロントエンドから明示的に指定されている場合）
+    // ただし、管理者以外はリクエストのaccountIdを無視してデータベースの値を信頼
+    // accountIdを正規化（小文字、ハイフン統一）
+    const normalizeAccountId = (id) => id ? id.toLowerCase().replace(/_/g, '-').trim() : 'link-th'
+    const rawAccountId = (userRole === 'admin' && requestAccountId) ? requestAccountId : dbAccountId
+    const accountId = normalizeAccountId(rawAccountId)
+    
+    console.log(`[Comparison] User: ${req.user.userId}, Site: ${site_url}`)
+    console.log(`[Comparison] DB accountId: ${dbAccountId}, Request accountId: ${requestAccountId}, Using: ${accountId}`)
+    
+    // 認証情報を取得
     let credentials
-    if (process.env.GOOGLE_CREDENTIALS) {
-      try {
-        credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS)
-      } catch (e) {
-        console.error('Failed to parse GOOGLE_CREDENTIALS:', e)
-        throw new Error('Failed to parse GOOGLE_CREDENTIALS environment variable: ' + e.message)
-      }
-    } else if (process.env.NODE_ENV !== 'production') {
-      // ローカル開発環境用のみ（本番環境ではエラー）
-      try {
-        const fs = await import('fs')
-        const path = await import('path')
-        const credentialsPath = path.join(process.cwd(), 'credentials', 'tabirai-seo-pj-58a84b33b54a.json')
-        credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-        console.log('Using local credentials file (development only)')
-      } catch (e) {
-        throw new Error('GOOGLE_CREDENTIALS environment variable is not set and local credentials file not found: ' + e.message)
-      }
-    } else {
-      throw new Error('GOOGLE_CREDENTIALS environment variable is required in production')
+    try {
+      credentials = getGoogleCredentials(accountId)
+      console.log(`[Comparison] Successfully loaded credentials for account: ${accountId}`)
+    } catch (error) {
+      console.error(`[Comparison] Failed to load credentials for account ${accountId}:`, error.message)
+      return res.status(500).json({ 
+        error: '認証情報の取得に失敗しました',
+        details: `アカウント: ${accountId}, エラー: ${error.message}`
+      })
     }
 
     // Google API認証
@@ -55,7 +72,8 @@ export default async function handler(req, res) {
       scopes: ['https://www.googleapis.com/auth/webmasters.readonly']
     })
 
-    const searchconsole = google.searchconsole({ version: 'v1', auth })
+    const authClient = await auth.getClient()
+    const searchconsole = google.searchconsole({ version: 'v1', auth: authClient })
 
     // より多くのデータを取得する関数
     const getAllSearchData = async (startDate, endDate, urlFilter = '') => {
@@ -84,23 +102,31 @@ export default async function handler(req, res) {
           }]
         }
 
-        const response = await searchconsole.searchanalytics.query({
-          siteUrl: site_url,
-          requestBody
-        })
+        try {
+          const response = await searchconsole.searchanalytics.query({
+            siteUrl: site_url,
+            requestBody
+          })
 
-        const rows = response.data?.rows || []
+          const rows = response.data?.rows || []
 
-        if (rows.length === 0) break
+          if (rows.length === 0) break
 
-        allRows = allRows.concat(rows)
+          allRows = allRows.concat(rows)
 
-        if (rows.length < rowLimit) break
+          if (rows.length < rowLimit) break
 
-        startRow += rowLimit
+          startRow += rowLimit
 
-        // API制限対策
-        await new Promise(resolve => setTimeout(resolve, 100))
+          // API制限対策
+          await new Promise(resolve => setTimeout(resolve, 100))
+        } catch (apiError) {
+          // Google APIの権限エラーを適切に処理
+          if (apiError.message && apiError.message.includes('sufficient permission')) {
+            throw new Error(`Google Search Console APIへのアクセス権限がありません。サイト "${site_url}" にサービスアカウント（${accountId}）を追加してください。詳細: ${apiError.message}`)
+          }
+          throw apiError
+        }
       }
 
       return allRows
@@ -121,8 +147,22 @@ export default async function handler(req, res) {
     res.status(200).json(result)
 
   } catch (error) {
-    console.error('API Error:', error)
-    res.status(500).json({ error: error.message })
+    console.error('[Comparison API] Error:', error)
+    
+    // Google APIの権限エラーの場合、より詳細なメッセージを返す
+    if (error.message && error.message.includes('sufficient permission')) {
+      return res.status(403).json({ 
+        error: 'Google Search Console APIへのアクセス権限がありません',
+        details: error.message,
+        help: 'サービスアカウントをGoogle Search Consoleのプロパティに追加してください。'
+      })
+    }
+    
+    // その他のエラー
+    res.status(500).json({ 
+      error: error.message || 'データ取得に失敗しました',
+      details: error.stack
+    })
   }
 }
 

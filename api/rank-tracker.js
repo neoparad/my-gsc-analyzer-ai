@@ -1,8 +1,9 @@
 import { google } from 'googleapis'
-import { checkBasicAuth } from '../lib/auth.js'
+import { verifyToken } from '../lib/auth-middleware.js'
+import { getGoogleCredentials } from '../lib/google-credentials.js'
+import { canUserAccessSite, getAccountIdForSite } from '../lib/user-sites.js'
 
 export default async function handler(req, res) {
-  if (!checkBasicAuth(req, res)) return
 
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -18,35 +19,59 @@ export default async function handler(req, res) {
     return
   }
 
+  // JWT認証チェック
+  const authResult = verifyToken(req, res)
+  if (authResult !== true) {
+    return
+  }
+
   try {
-    const { siteUrl, queries, period = 30 } = req.body
+    const { siteUrl, queries, period = 30, accountId: requestAccountId } = req.body
 
     if (!siteUrl || !queries || !Array.isArray(queries) || queries.length === 0) {
       return res.status(400).json({ error: 'siteUrl and queries are required' })
     }
 
-    // 環境変数から認証情報を取得（本番環境では必須）
+    // ユーザーがこのサイトにアクセス可能かチェック
+    const userRole = req.user.role || 'user'
+    const hasAccess = await canUserAccessSite(req.user.userId, siteUrl, userRole)
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'このサイトにアクセスする権限がありません' })
+    }
+
+    // ユーザーのサイト設定からサービスアカウントIDを取得
+    const dbAccountId = await getAccountIdForSite(req.user.userId, siteUrl, userRole)
+    
+    // リクエストボディのaccountIdを優先（フロントエンドから明示的に指定されている場合）
+    // ただし、管理者以外はリクエストのaccountIdを無視してデータベースの値を信頼
+    // accountIdを正規化（小文字、ハイフン統一）
+    const normalizeAccountId = (id) => id ? id.toLowerCase().replace(/_/g, '-').trim() : 'link-th'
+    const rawAccountId = (userRole === 'admin' && requestAccountId) ? requestAccountId : dbAccountId
+    const accountId = normalizeAccountId(rawAccountId)
+    
+    console.log(`[Rank Tracker] User: ${req.user.userId}, Site: ${siteUrl}`)
+    console.log(`[Rank Tracker] DB accountId: ${dbAccountId}, Request accountId: ${requestAccountId}, Using: ${accountId}`)
+    
+    // 認証情報を取得
     let credentials
-    if (process.env.GOOGLE_CREDENTIALS) {
-      try {
-        credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS)
-      } catch (e) {
-        console.error('Failed to parse GOOGLE_CREDENTIALS:', e)
-        throw new Error('Failed to parse GOOGLE_CREDENTIALS environment variable: ' + e.message)
+    try {
+      credentials = getGoogleCredentials(accountId)
+      console.log(`[Rank Tracker] Successfully loaded credentials for account: ${accountId}`)
+    } catch (error) {
+      console.error(`[Rank Tracker] Failed to load credentials for account ${accountId}:`, error.message)
+      // フォールバック: link-thを試す
+      if (accountId !== 'link-th') {
+        console.log(`[Rank Tracker] Trying fallback account: link-th`)
+        try {
+          credentials = getGoogleCredentials('link-th')
+          console.log(`[Rank Tracker] Using fallback account: link-th`)
+        } catch (fallbackError) {
+          console.error(`[Rank Tracker] Fallback also failed:`, fallbackError.message)
+          throw new Error(`認証情報の取得に失敗しました。アカウント: ${accountId}, エラー: ${error.message}`)
+        }
+      } else {
+        throw error
       }
-    } else if (process.env.NODE_ENV !== 'production') {
-      // ローカル開発環境用のみ（本番環境ではエラー）
-      try {
-        const fs = await import('fs')
-        const path = await import('path')
-        const credentialsPath = path.join(process.cwd(), 'credentials', 'tabirai-seo-pj-58a84b33b54a.json')
-        credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-        console.log('Using local credentials file (development only)')
-      } catch (e) {
-        throw new Error('GOOGLE_CREDENTIALS environment variable is not set and local credentials file not found: ' + e.message)
-      }
-    } else {
-      throw new Error('GOOGLE_CREDENTIALS environment variable is required in production')
     }
 
     // Google Search Console API認証

@@ -1,19 +1,13 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { google } from 'googleapis'
-import { checkBasicAuth } from '../lib/auth.js'
+import { verifyToken } from '../lib/auth-middleware.js'
+import { getGoogleCredentials } from '../lib/google-credentials.js'
+import { canUserAccessSite, getAccountIdForSite } from '../lib/user-sites.js'
 
 // Search Consoleからデータを取得
-async function getSearchConsoleData(siteUrl, startDate, endDate) {
+async function getSearchConsoleData(siteUrl, startDate, endDate, accountId = 'default') {
   // 認証情報の取得
-  let credentials
-  if (process.env.GOOGLE_CREDENTIALS) {
-    credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS)
-  } else {
-    const fs = await import('fs')
-    const path = await import('path')
-    const credentialsPath = path.join(process.cwd(), 'credentials', 'tabirai-seo-pj-58a84b33b54a.json')
-    credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-  }
+  const credentials = getGoogleCredentials(accountId)
 
   // Google API認証
   const auth = new google.auth.GoogleAuth({
@@ -70,10 +64,6 @@ JSONのみを返してください。`
 }
 
 export default async function handler(req, res) {
-  // Basic認証チェック
-  if (!checkBasicAuth(req, res)) {
-    return
-  }
 
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -90,8 +80,28 @@ export default async function handler(req, res) {
     return
   }
 
+  // JWT認証チェック
+  const authResult = verifyToken(req, res)
+  if (authResult !== true) {
+    return
+  }
+
   try {
     const { message, siteUrl } = req.body
+
+    // サイトURLが指定されている場合、アクセス権限をチェック
+    const targetSiteUrl = siteUrl || 'sc-domain:tabirai.net'
+    const userRole = req.user.role || 'user'
+    
+    if (siteUrl) {
+      const hasAccess = await canUserAccessSite(req.user.userId, targetSiteUrl, userRole)
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'このサイトにアクセスする権限がありません' })
+      }
+    }
+
+    // ユーザーのサイト設定からサービスアカウントIDを取得
+    const accountId = await getAccountIdForSite(req.user.userId, targetSiteUrl, userRole)
 
     // Gemini AI初期化
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
@@ -105,7 +115,16 @@ export default async function handler(req, res) {
 
     // Search Consoleデータが必要な場合は取得
     if (analysis.needsData) {
-      const targetSiteUrl = siteUrl || analysis.siteUrl || 'sc-domain:tabirai.net'
+      const analysisSiteUrl = analysis.siteUrl || targetSiteUrl
+      
+      // 分析で指定されたサイトURLもチェック
+      if (analysisSiteUrl !== targetSiteUrl) {
+        const hasAccess = await canUserAccessSite(req.user.userId, analysisSiteUrl, userRole)
+        if (!hasAccess) {
+          return res.status(403).json({ error: 'このサイトにアクセスする権限がありません' })
+        }
+      }
+      
       const endDate = new Date()
       const startDate = new Date()
       startDate.setDate(endDate.getDate() - (analysis.days || 30))
@@ -113,10 +132,12 @@ export default async function handler(req, res) {
       const formatDate = (d) => d.toISOString().split('T')[0]
 
       try {
+        const analysisAccountId = await getAccountIdForSite(req.user.userId, analysisSiteUrl, userRole)
         searchData = await getSearchConsoleData(
-          targetSiteUrl,
+          analysisSiteUrl,
           formatDate(startDate),
-          formatDate(endDate)
+          formatDate(endDate),
+          analysisAccountId
         )
 
         // データをサマリー化

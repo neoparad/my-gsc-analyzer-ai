@@ -1,8 +1,9 @@
 import { google } from 'googleapis'
-import { checkBasicAuth } from '../lib/auth.js'
+import { verifyToken } from '../lib/auth-middleware.js'
+import { getGoogleCredentials } from '../lib/google-credentials.js'
+import { canUserAccessSite, getAccountIdForSite } from '../lib/user-sites.js'
 
 export default async function handler(req, res) {
-  if (!checkBasicAuth(req, res)) return
 
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -18,6 +19,12 @@ export default async function handler(req, res) {
     return
   }
 
+  // JWT認証チェック
+  const authResult = verifyToken(req, res)
+  if (authResult !== true) {
+    return
+  }
+
   try {
     const { siteUrl, pageUrls, period = 30 } = req.body
 
@@ -25,28 +32,19 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'siteUrl and pageUrls are required' })
     }
 
-    // 環境変数から認証情報を取得
-    let credentials
-    if (process.env.GOOGLE_CREDENTIALS) {
-      try {
-        credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS)
-      } catch (e) {
-        console.error('Failed to parse GOOGLE_CREDENTIALS:', e)
-        throw new Error('Failed to parse GOOGLE_CREDENTIALS environment variable: ' + e.message)
-      }
-    } else if (process.env.NODE_ENV !== 'production') {
-      try {
-        const fs = await import('fs')
-        const path = await import('path')
-        const credentialsPath = path.join(process.cwd(), 'credentials', 'tabirai-seo-pj-58a84b33b54a.json')
-        credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-        console.log('Using local credentials file (development only)')
-      } catch (e) {
-        throw new Error('GOOGLE_CREDENTIALS environment variable is not set and local credentials file not found: ' + e.message)
-      }
-    } else {
-      throw new Error('GOOGLE_CREDENTIALS environment variable is required in production')
+    // ユーザーがこのサイトにアクセス可能かチェック
+    const userRole = req.user.role || 'user'
+    const hasAccess = await canUserAccessSite(req.user.userId, siteUrl, userRole)
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'このサイトにアクセスする権限がありません' })
     }
+
+    // ユーザーのサイト設定からサービスアカウントIDを取得
+    const accountId = await getAccountIdForSite(req.user.userId, siteUrl, userRole)
+    
+    // 認証情報を取得
+    const credentials = getGoogleCredentials(accountId)
+    console.log(`Using service account: ${accountId} for user: ${req.user.userId}, site: ${siteUrl}`)
 
     // Google Search Console API認証
     const auth = new google.auth.GoogleAuth({
